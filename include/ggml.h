@@ -349,21 +349,23 @@ extern "C" {
 
     struct ggml_object;
     
-//
-// ggml context
-//
+    //
+    // ggml context
+    //
 
-struct ggml_context {
-    size_t mem_size;
-    void * mem_buffer;
-    bool   mem_buffer_owned;
-    bool   no_alloc;
+    struct ggml_context {
+        size_t mem_size;
+        void * mem_buffer;
+        bool   mem_buffer_owned;
+        bool   no_alloc;
 
-    int    n_objects;
+        int    n_objects;
 
-    struct ggml_object * objects_begin;
-    struct ggml_object * objects_end;
-};    struct ggml_cgraph;
+        struct ggml_object * objects_begin;
+        struct ggml_object * objects_end;
+    };
+
+    struct ggml_cgraph;
 
     // NOTE: always add types at the end of the enum to keep backward compatibility
     enum ggml_type {
