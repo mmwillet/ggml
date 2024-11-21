@@ -855,22 +855,6 @@ struct ggml_object {
 
 static const size_t GGML_OBJECT_SIZE = sizeof(struct ggml_object);
 
-//
-// ggml context
-//
-
-struct ggml_context {
-    size_t mem_size;
-    void * mem_buffer;
-    bool   mem_buffer_owned;
-    bool   no_alloc;
-
-    int    n_objects;
-
-    struct ggml_object * objects_begin;
-    struct ggml_object * objects_end;
-};
-
 struct ggml_context_container {
     bool used;
 
@@ -3711,7 +3695,12 @@ GGML_API struct ggml_tensor * ggml_conv_1d(
         int                   s0,
         int                   p0,
         int                   d0) {
-    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16); // [N, OL, IC * K]
+
+    enum ggml_type t = b->type;
+    if (a->type == GGML_TYPE_F16 || b->type == GGML_TYPE_F16) {
+        t = GGML_TYPE_F16;
+    }
+    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, t); // [N, OL, IC * K]
 
     struct ggml_tensor * result =
         ggml_mul_mat(ctx,
@@ -3751,11 +3740,11 @@ GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
     GGML_ASSERT(a->ne[2] == b->ne[1]);
     GGML_ASSERT(a->ne[3] == 1);
 
-    GGML_ASSERT(p0 == 0);
+    GGML_ASSERT((p0 < s0 || p0 == 0) && s0 % p0 == 0);
     GGML_ASSERT(d0 == 1);
 
     const int64_t ne[4] = {
-        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
+        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, p0, 1 /*d0*/),
         a->ne[1], b->ne[2], 1,
     };
     struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);

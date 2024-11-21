@@ -9543,6 +9543,7 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -9564,10 +9565,12 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
             const int i1n = i10*ne11;
             for (int i00 = 0; i00 < ne00; i00++) {
                 float v = 0;
-                ggml_vec_dot_f16(ne02, &v, 0,
-                        (ggml_fp16_t *)    wdata_src + i1n, 0,
-                        (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    ggml_vec_dot_f16(ne02, &v, 0,
+                            (ggml_fp16_t *)    wdata_src + i1n, 0,
+                            (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
+                    dst_data[i10*s0 + i00] += v;
+                }
             }
         }
     }
@@ -9631,6 +9634,7 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -9652,10 +9656,12 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
             const int i1n = i10*ne11;
             for (int i00 = 0; i00 < ne00; i00++) {
                 float v = 0;
-                ggml_vec_dot_f32(ne02, &v, 0,
-                        wdata_src + i1n, 0,
-                        wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    ggml_vec_dot_f32(ne02, &v, 0,
+                            wdata_src + i1n, 0,
+                            wdata_kernel + i00 * ne02, 0, 1);
+                    dst_data[i10 * s0 + i00 - p0] += v;
+                }
             }
         }
     }
