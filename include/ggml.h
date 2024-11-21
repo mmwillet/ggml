@@ -348,8 +348,22 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
     struct ggml_object;
-    struct ggml_context;
-    struct ggml_cgraph;
+    
+//
+// ggml context
+//
+
+struct ggml_context {
+    size_t mem_size;
+    void * mem_buffer;
+    bool   mem_buffer_owned;
+    bool   no_alloc;
+
+    int    n_objects;
+
+    struct ggml_object * objects_begin;
+    struct ggml_object * objects_end;
+};    struct ggml_cgraph;
 
     // NOTE: always add types at the end of the enum to keep backward compatibility
     enum ggml_type {
