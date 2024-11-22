@@ -218,6 +218,7 @@ include(CMakePackageConfigHelpers)
 # all public headers
 set(GGML_PUBLIC_HEADERS
     include/ggml.h
+    src/ggml-impl.h
     include/ggml-cpu.h
     include/ggml-alloc.h
     include/ggml-backend.h

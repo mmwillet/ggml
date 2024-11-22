@@ -4020,7 +4020,7 @@ static enum ggml_status ggml_backend_metal_graph_compute(ggml_backend_t backend,
     return ggml_metal_graph_compute(backend, cgraph);
 }
 
-static void ggml_backend_metal_set_n_cb(ggml_backend_t backend, int n_cb) {
+void ggml_backend_metal_set_n_cb(ggml_backend_t backend, int n_cb) {
     GGML_ASSERT(ggml_backend_is_metal(backend));
 
     struct ggml_backend_metal_context * ctx = (struct ggml_backend_metal_context *)backend->context;
