@@ -958,7 +958,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 82, "GGML_OP_COUNT != 82");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1053,7 +1053,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 82, "GGML_OP_COUNT != 82");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -2186,6 +2186,32 @@ struct ggml_tensor * ggml_cos_inplace(
         struct ggml_context * ctx,
         struct ggml_tensor  * a) {
     return ggml_cos_impl(ctx, a, true);
+}
+
+// ggml_reciprocal
+
+static struct ggml_tensor * ggml_reciprocal_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_RECIPROCAL;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_reciprocal(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_reciprocal_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, true);
 }
 
 // ggml_sum

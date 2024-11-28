@@ -544,6 +544,8 @@ extern "C" {
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
 
+        GGML_OP_RECIPROCAL,
+
         GGML_OP_COUNT,
     };
 
@@ -921,6 +923,15 @@ extern "C" {
     GGML_API struct ggml_tensor * ggml_cos_inplace(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
+
+    // reciprocal of each value in tensor a
+    GGML_API struct ggml_tensor * ggml_reciprocal(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_reciprocal_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
 
     // return scalar
     GGML_API struct ggml_tensor * ggml_sum(
