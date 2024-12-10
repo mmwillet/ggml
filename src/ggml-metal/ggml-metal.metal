@@ -2107,6 +2107,49 @@ template [[host_name("kernel_rope_norm_f16")]] kernel kernel_rope_norm_t kernel_
 template [[host_name("kernel_rope_neox_f32")]] kernel kernel_rope_neox_t kernel_rope_neox<float>;
 template [[host_name("kernel_rope_neox_f16")]] kernel kernel_rope_neox_t kernel_rope_neox<half>;
 
+kernel void kernel_reciprocal(
+        device const float * src0,
+        device       float * dst,
+        uint tpig[[thread_position_in_grid]]) {
+    device const float & x = src0[tpig];
+    dst[tpig] = 1.0f / x;
+}
+
+kernel void kernel_conv_transpose_1d_f32(
+        constant ggml_metal_kargs_conv_transpose & args,
+        device const float * src0,
+        device const float * src1,
+        device       float * dst,
+        uint3 tgpig[[threadgroup_position_in_grid]],
+        uint3 tpitg[[thread_position_in_threadgroup]]) {
+    // I doubt that this is the fastests approach, but it was the easiest to implement. It is possible that a faster implementation would use
+    // the float4 dot after permuting the kernel and source tensors.
+
+    // Each thread is responsible for all dot products against a single index in the output space
+    // the thread groups are each composed of the output projection # of threads and there are sequence size # of thread groups.
+
+    const int64_t oi = tpitg[0];
+    const int64_t si = tgpig[0];
+    const int64_t pi = si + (int64_t) args.p0;
+    int64_t starting_sequence_index = (si + args.p0) / args.s0;
+    int index = args.ne0*oi+si;
+
+    // have to zero out the index in advance
+    dst[index] = 0.0f;
+
+    int64_t ki = pi % args.s0;
+
+    if ((si < (args.s0 - args.p0)) || (si > (args.ne0 - (args.s0 - args.p0)))) {
+        for (int i = 0; i < args.ne11; i++) {
+            dst[index] += src0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index];
+        }
+    } else {
+        for (int i = 0; i < args.ne11; i++) {
+            dst[index] += src0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index] + src0[i*args.ne00*args.ne01+ki+args.s0+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index-1];
+        }
+    }
+}
+
 typedef void (im2col_t)(
         device const float * x,
         device        char * dst,
@@ -3367,6 +3410,7 @@ kernel void kernel_cpy(
 typedef decltype(kernel_cpy<float, float>) kernel_cpy_t;
 
 template [[host_name("kernel_cpy_f32_f32")]]   kernel kernel_cpy_t kernel_cpy<float,  float>;
+template [[host_name("kernel_cpy_i32_i32")]]   kernel kernel_cpy_t kernel_cpy<int,  int>;
 template [[host_name("kernel_cpy_f32_f16")]]   kernel kernel_cpy_t kernel_cpy<float,  half>;
 #if defined(GGML_METAL_USE_BF16)
 template [[host_name("kernel_cpy_f32_bf16")]]  kernel kernel_cpy_t kernel_cpy<float,  bfloat>;
