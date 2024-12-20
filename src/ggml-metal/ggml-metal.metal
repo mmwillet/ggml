@@ -2115,9 +2115,18 @@ kernel void kernel_reciprocal(
     dst[tpig] = 1.0f / x;
 }
 
-kernel void kernel_conv_transpose_1d_f32(
+typedef void (kernel_conv_transpose_1d_t)(
         constant ggml_metal_kargs_conv_transpose & args,
-        device const float * src0,
+        device const char * src0,
+        device const float * src1,
+        device       float * dst,
+        uint3 tgpig[[threadgroup_position_in_grid]],
+        uint3 tpitg[[thread_position_in_threadgroup]]);
+
+template <typename T>
+kernel void kernel_conv_transpose_1d(
+        constant ggml_metal_kargs_conv_transpose & args,
+        device const char * src0,
         device const float * src1,
         device       float * dst,
         uint3 tgpig[[threadgroup_position_in_grid]],
@@ -2134,6 +2143,8 @@ kernel void kernel_conv_transpose_1d_f32(
     int64_t starting_sequence_index = (si + args.p0) / args.s0;
     int index = args.ne0*oi+si;
 
+    device T * psrc0 = (device T *) (src0);
+
     // have to zero out the index in advance
     dst[index] = 0.0f;
 
@@ -2141,14 +2152,17 @@ kernel void kernel_conv_transpose_1d_f32(
 
     if ((si < (args.s0 - args.p0)) || (si > (args.ne0 - (args.s0 - args.p0)))) {
         for (int i = 0; i < args.ne11; i++) {
-            dst[index] += src0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index];
+            dst[index] += psrc0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index];
         }
     } else {
         for (int i = 0; i < args.ne11; i++) {
-            dst[index] += src0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index] + src0[i*args.ne00*args.ne01+ki+args.s0+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index-1];
+            dst[index] += psrc0[i*args.ne00*args.ne01+ki+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index] + psrc0[i*args.ne00*args.ne01+ki+args.s0+oi*args.ne00] * src1[i*args.ne10+starting_sequence_index-1];
         }
     }
 }
+
+template [[host_name("kernel_conv_transpose_1d_f32")]] kernel kernel_conv_transpose_1d_t kernel_conv_transpose_1d<float>;
+template [[host_name("kernel_conv_transpose_1d_f16")]] kernel kernel_conv_transpose_1d_t kernel_conv_transpose_1d<half>;
 
 typedef void (im2col_t)(
         device const float * x,

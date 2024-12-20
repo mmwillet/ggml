@@ -263,6 +263,7 @@ enum ggml_metal_kernel_type {
     GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F32,
     GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F16,
     GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F32,
+    GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F16,
     GGML_METAL_KERNEL_TYPE_IM2COL_F16,
     GGML_METAL_KERNEL_TYPE_IM2COL_F32,
     GGML_METAL_KERNEL_TYPE_IM2COL_EXT_F16,
@@ -789,6 +790,7 @@ static struct ggml_backend_metal_context * ggml_metal_init(ggml_backend_dev_t de
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F32,                 rope_neox_f32,                  true);
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_ROPE_NEOX_F16,                 rope_neox_f16,                  true);
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F32,         conv_transpose_1d_f32,          true);
+        GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F16,         conv_transpose_1d_f16,          true);
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_IM2COL_F16,                    im2col_f16,                     true);
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_IM2COL_F32,                    im2col_f32,                     true);
         GGML_METAL_ADD_KERNEL(GGML_METAL_KERNEL_TYPE_IM2COL_EXT_F16,                im2col_ext_f16,                 true);
@@ -2853,20 +2855,30 @@ static void ggml_metal_encode_node(
             } break;
         case GGML_OP_CONV_TRANSPOSE_1D:
             {
-                GGML_ASSERT(src0->type == GGML_TYPE_F32);
+                GGML_ASSERT(src0->type == GGML_TYPE_F32 ||src0->type == GGML_TYPE_F16);
                 GGML_ASSERT(src1->type == GGML_TYPE_F32);
                 GGML_ASSERT( dst->type == GGML_TYPE_F32);
 
                 const int32_t s0 = ((const int32_t *)(dst->op_params))[0];
                 const int32_t p0 = ((const int32_t *)(dst->op_params))[1];
                 const int32_t d0 = ((const int32_t *)(dst->op_params))[2];
-                
+
                 // only supporting a half stride for now, because computing custom or uneven kernel strides is costly in the shader function.
                 GGML_ASSERT(ne00 / s0 == 2);
 
                 id<MTLComputePipelineState> pipeline = ctx->kernels[GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F32].pipeline;
 
                 GGML_ASSERT(ne01 < pipeline.maxTotalThreadsPerThreadgroup);
+
+                switch (src0->type) {
+                    case GGML_TYPE_F32: {
+                        pipeline = ctx->kernels[GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F32].pipeline;
+                    } break;
+                    case GGML_TYPE_F16: {
+                        pipeline = ctx->kernels[GGML_METAL_KERNEL_TYPE_CONV_TRANSPOSE_1D_F16].pipeline;
+                    } break;
+                    default: GGML_ABORT("fatal error");
+                };
 
                 ggml_metal_kargs_conv_transpose args = {
                     /*.ne00 =*/ ne00,
