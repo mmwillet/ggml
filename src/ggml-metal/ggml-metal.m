@@ -996,8 +996,13 @@ static bool ggml_metal_supports_op(const struct ggml_backend_metal_device_contex
         case GGML_OP_REPEAT:
         case GGML_OP_SCALE:
         case GGML_OP_CLAMP:
-        case GGML_OP_CONV_TRANSPOSE_1D:
             return true;
+        case GGML_OP_CONV_TRANSPOSE_1D:
+            {
+                const int32_t g0 = ((const int32_t *)(op->op_params))[3];
+                const int32_t s0 = ((const int32_t *)(op->op_params))[0];
+                return op->src[0]->ne[0] / s0 == 2 && g0 == 1;
+            }
         case GGML_OP_SQR:
         case GGML_OP_SQRT:
         case GGML_OP_SIN:

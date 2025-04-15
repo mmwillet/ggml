@@ -1795,6 +1795,9 @@ inline static void ggml_vec_sigmoid_f32 (const int n, float * y, const float * x
 inline static void ggml_vec_hardswish_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = x[i] * fminf(1.0f, fmaxf(0.0f, (x[i] + 3.0f) / 6.0f)); }
 inline static void ggml_vec_hardsigmoid_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = fminf(1.0f, fmaxf(0.0f, (x[i] + 3.0f) / 6.0f)); }
 inline static void ggml_vec_exp_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = expf(x[i]); }
+inline static void ggml_vec_round_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (float)((int) (x[i] + 0.5f)); }
+inline static void ggml_vec_mod_f32(const int n, float * y, const float * x, const float mod_val) { for (int i = 0; i < n; ++i) y[i] = fmod(x[i], mod_val); }
+
 
 static const float GELU_COEF_A     = 0.044715f;
 static const float GELU_QUICK_COEF = -1.702f;
@@ -5577,6 +5580,156 @@ static void ggml_compute_forward_reciprocal(
     }
 }
 
+// ggml_compute_forward_cumsum
+
+static void ggml_compute_forward_cumsum_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    GGML_TENSOR_UNARY_OP_LOCALS;
+
+    if (ith > ne1) {
+        return;
+    }
+
+    const int rpt = ne1 / nth + 1;
+    // row range for this thread
+    const int ir0 = rpt * ith;
+    const int ir1 = MIN(ir0 + rpt, ne1);
+
+    if (ir0 > ne1) {
+        return;
+    }
+
+    for (int b = 0; b < ne2; b++) {
+        for (int i1 = ir0; i1 < ir1; i1++) {
+            float running = 0.0f;
+            float * tgt_data = (float *)((char *) src0->data + i1*nb01 + b*nb02); 
+            float * dst_data = (float *)((char *) dst->data + i1*nb1 + b*nb2); 
+            for (int ii = 0; ii < ne0; ii++) {
+                running += tgt_data[ii];
+                dst_data[ii] = running;
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_cumsum(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_cumsum_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+
+// ggml_compute_forward_mod
+
+static void ggml_compute_forward_mod_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+
+    if (ith != 0) {
+        return;
+    }
+    const float mod_val = ((float *) dst->op_params)[0]; 
+
+    GGML_ASSERT(ggml_are_same_shape(src0, dst));
+
+    const int n  = ggml_nrows(src0);
+    const int nc = src0->ne[0];
+
+    GGML_ASSERT( dst->nb[0] == sizeof(float));
+    GGML_ASSERT(src0->nb[0] == sizeof(float));
+
+    for (int i = 0; i < n; i++) {
+        ggml_vec_mod_f32(nc,
+                (float *) ((char *) dst->data  + i*( dst->nb[1])),
+                (float *) ((char *) src0->data + i*(src0->nb[1])),
+                mod_val);
+    }
+}
+
+static void ggml_compute_forward_mod(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_mod_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+// ggml_compute_forward_round
+
+static void ggml_compute_forward_round_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    if (params->ith != 0) {
+        return;
+    }
+
+    GGML_ASSERT(ggml_are_same_shape(src0, dst));
+
+    const int n  = ggml_nrows(src0);
+    const int nc = src0->ne[0];
+
+    GGML_ASSERT( dst->nb[0] == sizeof(float));
+    GGML_ASSERT(src0->nb[0] == sizeof(float));
+
+    for (int i = 0; i < n; i++) {
+        ggml_vec_round_f32(nc,
+                (float *) ((char *) dst->data  + i*( dst->nb[1])),
+                (float *) ((char *) src0->data + i*(src0->nb[1])));
+    }
+}
+
+
+static void ggml_compute_forward_round(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_round_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // ggml_compute_forward_sum
 
 static void ggml_compute_forward_sum_f32(
@@ -8331,6 +8484,339 @@ static void ggml_compute_forward_set(
     }
 }
 
+// ggml_compute_forward_stft
+
+// This is a simple O(N*N) implementation of dft which is only used for cases in which radix2 is incompatible
+static void simple_dft(
+        float * mdst,
+        float * phdst,
+        float * buffer,
+        size_t n_fft,
+        size_t step) {
+    float base_k = M_PI * -2.0f / (float) n_fft;
+    for (int i = 0; i < n_fft; i++) {
+        float tm = 0.0f;
+        float tph = 0.0f;
+        for (int ii = 0; ii < n_fft; ii++) {
+            float k = base_k * (float)ii * (float)i;
+            float m = cosf(k);
+            float expk = sinf(k);
+            tm += mdst[ii*step] * m - phdst[ii*step] * expk;
+            tph += mdst[ii*step] * expk + phdst[ii*step] * m;
+        }
+        buffer[i*2] = tm;
+        buffer[i*2+1] = tph;
+    }
+    // assign magnitude and phase values from the accumulated buffer;
+    for (int i = 0; i < n_fft; i++) {
+        mdst[i*step] = buffer[i*2];
+        phdst[i*step] = buffer[i*2+1]; //-1.0e-15 < buffer[i*2+1] < 1.0e-15 ? 0.0f : buffer[i*2+1];
+    }
+}
+
+
+// radix-2 or the Cooley-Tukey algorithm is a Fast Fourier Transform algorithm with O(NlogN) for calculating DFT of 
+// any series of an even size. Odd sized series are recursively computed with the simple DFT algorithm above (which is O(N*N))
+static void radix2_fft(
+        float * mdst,
+        float * phdst,
+        float * buffer,
+        size_t n_fft,
+        size_t step) {
+    if (n_fft == 1) {
+        return;
+    } else if (n_fft % 2 != 0) {
+        // rather than using chirp padding just fall back to dft when we have a size that isn't factorable by 2.
+        simple_dft(mdst, phdst, buffer, n_fft, step);
+        return;
+    }
+
+    radix2_fft(mdst, phdst, buffer, (size_t)n_fft/2, step*2);
+    radix2_fft(
+        (float*)((char*) mdst + step * sizeof(float)),
+        (float*)((char*) phdst + step * sizeof(float)),
+        buffer,
+        (size_t)n_fft/2,
+        step*2);
+
+    float km = M_PI * -2.0f / (float) n_fft;
+
+    for (int i = 0; 2 * i < n_fft; i++) {
+        float k = km * (float) i;
+        float k1 = cosf(k);
+        float k2 = sinf(k);
+
+        float mp = mdst[i*2*step];
+        float php = phdst[i*2*step];
+        float mq = mdst[(i*2+1)*step] * k1 - k2 * phdst[(i*2+1)*step];
+        float phq = mdst[(i*2+1)*step] * k2 + k1 * phdst[(i*2+1)*step];
+
+        buffer[i + n_fft] = php + phq;
+        buffer[i] = mp + mq; 
+        buffer[(i + (n_fft / 2)) + n_fft] = php - phq;
+        buffer[(i + (n_fft / 2))] = mp - mq;
+    }
+    for (int i = 0; i < n_fft; i++) {
+        mdst[i*step] = buffer[i];
+        phdst[i*step] = buffer[i+n_fft];
+    }
+}
+
+static void ggml_compute_forward_stft_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst,
+        bool compute_abs_and_angle) {
+    const struct ggml_tensor * src0 = dst->src[0];
+    const struct ggml_tensor * src1 = dst->src[1];
+    const float * w = (float*) src1->data;
+
+    // view src0 and dst with these strides and data offset inbytes during set
+    // nb0 is implicitly element_size because src0 and dst are contiguous
+    size_t n_fft = ((int32_t *) dst->op_params)[0]; 
+    size_t hop   = ((int32_t *) dst->op_params)[1];
+
+    const int half = n_fft / 2;
+
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
+    GGML_ASSERT( dst->type == GGML_TYPE_F32);
+
+    GGML_TENSOR_BINARY_OP_LOCALS;
+    
+    GGML_ASSERT(n_fft == ne10); // only currently supporting stft while n_fft is equal to the window size 
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    if (ith == 0) {
+        // need to zero dst since we are accumulating into it
+        memset(dst->data, 0.0f, ggml_nbytes(dst));
+        memset(params->wdata, 0.0f, (n_fft * 2 + CACHE_LINE_SIZE_F32)*nth);
+    }
+    ggml_barrier(params->threadpool);
+
+    // it is faster to just use the max possible memory for the buffer rather than calculating the largest uneven half of the window.
+    float * buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith; 
+
+    // hops per thread
+    const int hpt = ne1 / nth + 1;
+
+    // row range for this thread
+    const int ir0 = hpt * ith;
+    const int ir1 = MIN(ir0 + hpt, ne1);
+
+    for (int b = 0; b < ne01; b++) {
+        for (int i1 = ir0; i1 < ir1; i1++) {
+            const int ch = i1*hop;
+            float * mdst_data = (float *)((char *) dst->data + i1*nb1 + b*nb2);
+            float * phdst_data = (float *)((char *) dst->data + i1*nb1 + nb3 + b*nb2);
+            float * tgt_data = (float *)((char *) src0->data + b*nb01);
+            // preinitialize the magnitude data with the window applied;
+            for (int i = 0; i < n_fft; i++) {
+                int ai = (ch - half + i); // for handling reflective padding to support center view;
+                if (ai < 0) {
+                    mdst_data[i] = tgt_data[-1 * ai] * w[i];
+                } else if (ai >= ne00) {
+                    mdst_data[i] = tgt_data[ne00 - (ai - ne00 - 1)] * w[i];
+                } else {
+                    mdst_data[i] = tgt_data[ai] * w[i];
+                }
+            }
+            radix2_fft(mdst_data, phdst_data, buffer, n_fft, 1);
+            if (compute_abs_and_angle) {
+                for (int i = 0; i < n_fft; i++) {
+                    float abs = sqrtf(mdst_data[i]*mdst_data[i] + phdst_data[i]*phdst_data[i]);
+                    float agl = cargf(CMPLXF(mdst_data[i], phdst_data[i])); //atan2f(phdst_data[i], mdst_data[i]);
+                    mdst_data[i] = abs;
+                    phdst_data[i] = agl;
+                }
+            }
+        }
+    }
+}
+
+
+static void ggml_compute_forward_stft(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_stft_f32(params, dst, false);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+
+static void ggml_compute_forward_abs_angle_stft(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_stft_f32(params, dst, true);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+// ggml_compute_forward_istft
+
+// this implementation of inverse Fast Fourier Transform exploits the inherent time-reversal property of DFT.
+// As such, it makes use of radix2_fft.
+static void radix2_ifft(
+        float * mdst,
+        float * phdst,
+        float * buffer,
+        float * tgt, 
+        float * window,
+        size_t n_fft, 
+        size_t step,
+        int min_length,
+        int max_length,
+        int index,
+        int offset) {
+    radix2_fft(mdst, phdst, buffer, n_fft, step);
+    for (int i = 0; i < n_fft; i++) {
+        int base_index = (n_fft - i) % n_fft;
+        float w = window[base_index];
+        int tgt_index = base_index - offset;
+        int location = index + tgt_index;
+        if (location < min_length || location >= max_length) {
+            continue; // ignore reflective padding
+        }
+        tgt[location] += mdst[i] / n_fft * w;
+    }
+}
+
+static void ggml_compute_forward_istft_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst,
+        bool from_abs_and_angle) {
+    const struct ggml_tensor * src0 = dst->src[0];
+    const struct ggml_tensor * window = dst->src[1];
+
+    // view src0 and dst with these strides and data offset inbytes during set
+    // nb0 is implicitly element_size because src0 and dst are contiguous
+    size_t n_fft = ((int32_t *) dst->op_params)[0];
+    size_t hop   = ((int32_t *) dst->op_params)[1];
+
+    const int half = n_fft / 2;
+
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+    GGML_ASSERT( dst->type == GGML_TYPE_F32);
+
+    GGML_TENSOR_UNARY_OP_LOCALS;
+    
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    if (ith == 0) {
+        // need to zero dst since we are accumulating into it
+        memset(dst->data, 0, ggml_nbytes(dst));
+    }
+    ggml_barrier(params->threadpool);
+
+    // it is faster to just use the max possible memory for the buffer rather than calculating the largest uneven half of the window.
+    float * buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith; 
+
+    // this buffer is used to rebuild the two sided fft from a one sided intput as well compute the complex values from the magnitude and phase.
+    float * phm_buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * nth + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith;
+
+    // frames per thread
+    const int fpt = ne01 / nth + 1;
+    // series items per thread
+    const int spt = ne0 / nth + 1;
+
+    // each thread effectively owns a portion of the output series, but distinct frames can overlap over series so we need to recompute overlapping ifft values 
+    // around the edges.
+    const int poa = (half + n_fft) / hop;
+    const int pob = n_fft / hop;
+    // row range for this thread
+    const int ir0 = MAX(fpt * ith - pob, 0);
+    const int ir1 = MIN(ir0 + fpt + poa, ne01);
+    const int min_spt = ith * spt;
+    const int max_spt = MIN(min_spt + spt, ne0);
+
+    bool onesided = ne00 == half + 1; 
+
+    for (int b = 0; b < ne02; b++) {
+        for (int i1 = ir0; i1 < ir1; i1++) {
+            float * mdst_data = (float *)((char *) src0->data + i1*nb01 + b*nb02);
+            float * phdst_data = (float *)((char *) src0->data + i1*nb01 + nb03 + b*nb02);
+            float * tgt_data = (float *)((char *) dst->data + b*nb1);
+            if (from_abs_and_angle || onesided) {
+                for (int i = 0; i < n_fft; i++) {
+                    int index = i;
+                    float multiplier = 1.0f;
+                    if (onesided && i >= half + 1) {
+                        index = n_fft - i;
+                        multiplier = -1.0f; 
+                    }
+                    float k = phdst_data[index];
+                    float m = mdst_data[index];
+                    float ph = m;
+                    if (from_abs_and_angle) {
+                        m *= cosf(k);
+                        ph *= multiplier * sinf(k);
+                    } 
+                    phm_buffer[i] = m;
+                    phm_buffer[i+n_fft] = ph;
+                }
+                radix2_ifft(phm_buffer, phm_buffer + n_fft, buffer, tgt_data, (float*) window->data, n_fft, 1, min_spt, max_spt, i1*hop, half);
+            } else {
+                radix2_ifft(mdst_data, phdst_data, buffer, tgt_data, (float*) window->data, n_fft, 1, min_spt, max_spt, i1*hop, half);
+            }
+            // it should be noted that we don't remove any window applied via stft as that is better performed by a tensor multiplication op
+        }
+    }
+}
+
+static void ggml_compute_forward_abs_angle_istft(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_istft_f32(params, dst, true);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+static void ggml_compute_forward_istft(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_istft_f32(params, dst, false);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // ggml_compute_forward_cpy
 
 static void ggml_compute_forward_cpy(
@@ -8547,7 +9033,6 @@ static void ggml_compute_forward_get_rows_f32(
         const int64_t i11 = (i - i12*ne11*ne10)/ne10;
         const int64_t i10 = (i - i12*ne11*ne10 - i11*ne10);
         const int64_t i01 = *(int32_t *) ((char *) src1->data + i10*nb10 + i11*nb11 + i12*nb12);
-
         GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
         ggml_vec_cpy_f32(nc,
@@ -9591,9 +10076,12 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
     const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
 
     // total rows in dst
     const int nr = ne1;
+    const int gne02 = ne02 / g0;
+    const int kernel_m = gne02 == 1 ? 1 : ne02*ne00; // strictly speaking ne02*ne00 is wrong for other groupings but the grouping argument should be rarely used.
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -9607,13 +10095,13 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        ggml_fp16_t * wdata_kernel = wdata + i1*ne02*ne00;
+        ggml_fp16_t * wdata_kernel = wdata + i1*kernel_m;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            const int i1n = i10*ne11 + (int)(i1 / gne02);
             for (int i00 = 0; i00 < ne00; i00++) {
                 float v = 0;
                 if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
-                    ggml_vec_dot_f16(ne02, &v, 0,
+                    ggml_vec_dot_f16(gne02, &v, 0,
                             (ggml_fp16_t *)    wdata_src + i1n, 0,
                             (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
                     dst_data[i10*s0 + i00] += v;
@@ -9623,6 +10111,9 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     }
 }
 
+// much of the original function implemented here is improper and seems to rely heavily on various assumptions
+// notably the way that it internally reshapes and iterates on the kernel improperly makes the assumption that the 
+// kernel output and input shape will be equivalent.
 static void ggml_compute_forward_conv_transpose_1d_f32(
         const struct ggml_compute_params * params,
               struct ggml_tensor * dst) {
@@ -9682,9 +10173,13 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
     const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
 
     // total rows in dst
     const int nr = ne1;
+    const int gne02 = ne02 / g0;
+
+    const int kernel_m = gne02 == 1 ? 1 : ne02*ne00; // strictly speaking ne02*ne00 is wrong for other groupings but the grouping argument should be rarely used.
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -9698,13 +10193,13 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        float * wdata_kernel = wdata + i1*ne02*ne00;
+        float * wdata_kernel = wdata + i1*kernel_m;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            const int i1n = i10*ne11 + (int)(i1 / gne02);
             for (int i00 = 0; i00 < ne00; i00++) {
-                float v = 0;
+                float v = 0.0f;
                 if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
-                    ggml_vec_dot_f32(ne02, &v, 0,
+                    ggml_vec_dot_f32(gne02, &v, 0,
                             wdata_src + i1n, 0,
                             wdata_kernel + i00 * ne02, 0, 1);
                     dst_data[i10 * s0 + i00 - p0] += v;
@@ -10416,6 +10911,77 @@ static void ggml_compute_forward_upscale(
         case GGML_TYPE_F32:
             {
                 ggml_compute_forward_upscale_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+// ggml_compute_forward_upscale_linear
+
+
+// Currently this is only built to support linear interpolation along ne0.
+// It should also be noted that this implementation is not fully consistent
+// with pytorch.
+static void ggml_compute_forward_upscale_linear_f32(
+    const struct ggml_compute_params * params,
+    struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    GGML_ASSERT(src0->type == GGML_TYPE_F32);
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    // rows per thread
+    const int dr = (ne0 + nth - 1)/nth;
+
+    // row range for this thread
+    const int ir0 = dr*ith;
+    const int ir1 = MIN(ir0 + dr, ne0);
+
+    const float sf0 = (float)ne0/src0->ne[0];
+    const int64_t sf = (int64_t) sf0;
+
+    for (int64_t i3 = 0; i3 < ne3; i3++) {
+        for (int64_t i2 = 0; i2 < ne2; i2 += nth) {
+            for (int64_t i1 = 0; i1 < ne1; i1++) {
+                float * y = (float *)((char *)dst->data + i1*nb1 + i2*nb2 + i3*nb3);
+                for (int64_t i0 = ir0; i0 < ir1; i0++) {
+                    const float adj = (float) (i0 % sf) / sf0;
+                    const int64_t i00 = i0 / sf0;
+                    if (ith == 0 && i00 == 0) {
+                        const float * x = (float *)((char *) src0->data + i00*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
+                        float base = x[0];
+                        float top = (x[0]+x[1])/2.0f;
+                        y[i0] = base + adj * (top - base);
+                    } else {
+                        const float * x = (float *)((char *) src0->data + (i00-1)*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
+                        float base = (x[0]+x[1])/2.0f;
+                        float top = i00 + 1 >= ne00 ? x[1] : (x[1]+x[2])/2.0f;
+                        y[i0] = base + adj * (top - base);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_upscale_linear(
+    const struct ggml_compute_params * params,
+    struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_upscale_linear_f32(params, dst);
             } break;
         default:
             {
@@ -12410,6 +12976,18 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_reciprocal(params, tensor);
             } break;
+        case GGML_OP_ROUND:
+            {
+                ggml_compute_forward_round(params, tensor);
+            } break;
+        case GGML_OP_CUMSUM:
+            {
+                ggml_compute_forward_cumsum(params, tensor);
+            } break;
+        case GGML_OP_MOD:
+            {
+                ggml_compute_forward_mod(params, tensor);
+            } break;
         case GGML_OP_SUM:
             {
                 ggml_compute_forward_sum(params, tensor);
@@ -12481,6 +13059,22 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         case GGML_OP_SET:
             {
                 ggml_compute_forward_set(params, tensor);
+            } break;
+        case GGML_OP_STFT:
+            {
+                ggml_compute_forward_stft(params, tensor);
+            } break;
+        case GGML_OP_AA_STFT:
+            {
+                ggml_compute_forward_abs_angle_stft(params, tensor);
+            } break;
+        case GGML_OP_ISTFT:
+            {
+                ggml_compute_forward_istft(params, tensor);
+            } break;
+        case GGML_OP_AA_ISTFT:
+            {
+                ggml_compute_forward_abs_angle_istft(params, tensor);
             } break;
         case GGML_OP_CPY:
             {
@@ -12577,6 +13171,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
         case GGML_OP_UPSCALE:
             {
                 ggml_compute_forward_upscale(params, tensor);
+            } break;
+        case GGML_OP_UPSCALE_LINEAR:
+            {
+                ggml_compute_forward_upscale_linear(params, tensor);
             } break;
         case GGML_OP_PAD:
             {
@@ -12807,6 +13405,8 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_ADD:
         case GGML_OP_ADD1:
         case GGML_OP_RECIPROCAL:
+        case GGML_OP_MOD:
+        case GGML_OP_ROUND:
         case GGML_OP_ACC:
             {
                 n_tasks = n_threads;
@@ -12871,6 +13471,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_CONCAT:
         case GGML_OP_MUL_MAT:
         case GGML_OP_MUL_MAT_ID:
+        case GGML_OP_CUMSUM:
         case GGML_OP_OUT_PROD:
             {
                 n_tasks = n_threads;
@@ -12917,6 +13518,13 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
             {
                 n_tasks = n_threads;
             } break;
+        case GGML_OP_STFT:
+        case GGML_OP_AA_STFT:
+        case GGML_OP_ISTFT:
+        case GGML_OP_AA_ISTFT:
+            {
+                n_tasks = n_threads;
+            } break;
         case GGML_OP_POOL_1D:
         case GGML_OP_POOL_2D:
         case GGML_OP_POOL_2D_BACK:
@@ -12924,6 +13532,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
                 n_tasks = 1;
             } break;
         case GGML_OP_UPSCALE:
+        case GGML_OP_UPSCALE_LINEAR:
         case GGML_OP_PAD:
         case GGML_OP_ARANGE:
         case GGML_OP_TIMESTEP_EMBEDDING:
@@ -13427,7 +14036,18 @@ struct ggml_cplan ggml_graph_plan(
                         cur += sizeof(float)*mxDn*n_tasks; // this is overestimated by x2
                     }
                 } break;
-
+            case GGML_OP_STFT:
+            case GGML_OP_AA_STFT:
+                {
+                    cur = ggml_type_size(node->type)*(n_threads + node->ne[0] * n_threads * 2);
+                } break;
+            case GGML_OP_ISTFT:
+            case GGML_OP_AA_ISTFT:
+                {
+                    // In order to support one sided reflective padding and complex conversions we need two extra n_fft sized buffers 
+                    // to prepare magnitude and phase for inverted FFTs.
+                    cur = ggml_type_size(node->type)*(n_tasks + node->ne[0] * n_tasks * 4);
+                } break;
             case GGML_OP_CROSS_ENTROPY_LOSS:
                 {
                     cur = ggml_type_size(node->type)*(n_tasks + node->src[0]->ne[0]*n_tasks);
