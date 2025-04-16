@@ -8626,7 +8626,7 @@ static void ggml_compute_forward_stft_f32(
             if (compute_abs_and_angle) {
                 for (int i = 0; i < n_fft; i++) {
                     float abs = sqrtf(mdst_data[i]*mdst_data[i] + phdst_data[i]*phdst_data[i]);
-                    float agl = cargf(CMPLXF(mdst_data[i], phdst_data[i])); //atan2f(phdst_data[i], mdst_data[i]);
+                    float agl = atan2f(phdst_data[i], mdst_data[i]);
                     mdst_data[i] = abs;
                     phdst_data[i] = agl;
                 }
