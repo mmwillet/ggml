@@ -5595,7 +5595,7 @@ static void ggml_compute_forward_cumsum_f32(
         return;
     }
 
-    const int rpt = ne1 / nth + 1;
+    const int rpt = (ne1 + nth - 1)/nth;
     // row range for this thread
     const int ir0 = rpt * ith;
     const int ir1 = MIN(ir0 + rpt, ne1);
@@ -8596,10 +8596,10 @@ static void ggml_compute_forward_stft_f32(
     ggml_barrier(params->threadpool);
 
     // it is faster to just use the max possible memory for the buffer rather than calculating the largest uneven half of the window.
-    float * buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith; 
+    float * buffer = ((float *) params->wdata) + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith;
 
     // hops per thread
-    const int hpt = ne1 / nth + 1;
+    const int hpt = (ne1 + nth - 1)/nth;
 
     // row range for this thread
     const int ir0 = hpt * ith;
@@ -8729,28 +8729,25 @@ static void ggml_compute_forward_istft_f32(
     ggml_barrier(params->threadpool);
 
     // it is faster to just use the max possible memory for the buffer rather than calculating the largest uneven half of the window.
-    float * buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith; 
+    float * buffer = ((float *) params->wdata) + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith;
 
     // this buffer is used to rebuild the two sided fft from a one sided intput as well compute the complex values from the magnitude and phase.
-    float * phm_buffer = (float *) params->wdata + (n_fft * 2 + CACHE_LINE_SIZE_F32) * nth + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith;
+    float * phm_buffer = ((float *) params->wdata) + (n_fft * 2 + CACHE_LINE_SIZE_F32) * nth + (n_fft * 2 + CACHE_LINE_SIZE_F32) * ith;
 
     // frames per thread
-    const int fpt = ne01 / nth + 1;
-    // series items per thread
-    const int spt = ne0 / nth + 1;
+    const int spt = (ne0 + nth - 1)/nth;
 
     // each thread effectively owns a portion of the output series, but distinct frames can overlap over series so we need to recompute overlapping ifft values 
     // around the edges.
-    const int poa = (half + n_fft) / hop;
-    const int pob = n_fft / hop;
+    const int poa = half / hop - 1;
+    const int pob = half / hop + 1;
     // row range for this thread
-    const int ir0 = MAX(fpt * ith - pob, 0);
-    const int ir1 = MIN(ir0 + fpt + poa, ne01);
     const int min_spt = ith * spt;
-    const int max_spt = MIN(min_spt + spt, ne0);
+    const int max_spt = MIN(min_spt+spt, ne0);
+    const int ir0 = ith == 0 ? 0 : (min_spt / hop) - poa;
+    const int ir1 = MAX((max_spt / hop) + pob, ne01);
 
     bool onesided = ne00 == half + 1; 
-
     for (int b = 0; b < ne02; b++) {
         for (int i1 = ir0; i1 < ir1; i1++) {
             float * mdst_data = (float *)((char *) src0->data + i1*nb01 + b*nb02);
