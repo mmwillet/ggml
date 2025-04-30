@@ -8617,7 +8617,7 @@ static void ggml_compute_forward_stft_f32(
                 if (ai < 0) {
                     mdst_data[i] = tgt_data[-1 * ai] * w[i];
                 } else if (ai >= ne00) {
-                    mdst_data[i] = tgt_data[ne00 - (ai - ne00 - 1)] * w[i];
+                    mdst_data[i] = tgt_data[ne00 - (ai - ne00 + 1)] * w[i];
                 } else {
                     mdst_data[i] = tgt_data[ai] * w[i];
                 }
@@ -10942,27 +10942,34 @@ static void ggml_compute_forward_upscale_linear_f32(
     const int ir0 = dr*ith;
     const int ir1 = MIN(ir0 + dr, ne0);
 
-    const float sf0 = (float)ne0/src0->ne[0];
+    // the scale factor computed by dividing the output size by the input size
+    // this method currently doesn't support downscale interpolation (i.e. a scale factor between 0.0 and 1.0)
+    const float sf0 = (float) ne0 / src0->ne[0];
+    // in the PyTorch implementation of linear interpolation when performing linear upscaling, each side is padded by the half the scale factor of
+    // the first and last values respectively. Below we calculate half the scale factor.
+    const float hsf0 = sf0 / 2.0f;
     const int64_t sf = (int64_t) sf0;
+    const int64_t hsf = (int64_t) hsf0;
 
     for (int64_t i3 = 0; i3 < ne3; i3++) {
         for (int64_t i2 = 0; i2 < ne2; i2 += nth) {
             for (int64_t i1 = 0; i1 < ne1; i1++) {
                 float * y = (float *)((char *)dst->data + i1*nb1 + i2*nb2 + i3*nb3);
                 for (int64_t i0 = ir0; i0 < ir1; i0++) {
-                    const float adj = (float) (i0 % sf) / sf0;
-                    const int64_t i00 = i0 / sf0;
-                    if (ith == 0 && i00 == 0) {
-                        const float * x = (float *)((char *) src0->data + i00*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
-                        float base = x[0];
-                        float top = (x[0]+x[1])/2.0f;
-                        y[i0] = base + adj * (top - base);
-                    } else {
-                        const float * x = (float *)((char *) src0->data + (i00-1)*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
-                        float base = (x[0]+x[1])/2.0f;
-                        float top = i00 + 1 >= ne00 ? x[1] : (x[1]+x[2])/2.0f;
-                        y[i0] = base + adj * (top - base);
+                    if (i0 < hsf) {
+                        y[i0] = ((float *)((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03))[0];
+                        continue;
+                    } else if (i0 >= ne0 - hsf) {
+                        y[i0] = ((float *)((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03))[src0->ne[0]-1];
+                        continue;
                     }
+                    const int64_t i00 = (i0 - hsf0) / sf0;
+                    const float * x = (float *)((char *) src0->data + i00*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
+                    float base = x[0];
+                    float top = x[1];
+                    float diff_adj = (top - base) / sf0;
+                    float adj = ((i0 - hsf) % sf) * diff_adj + (diff_adj / 2.0f);
+                    y[i0] = base + adj;
                 }
             }
         }
