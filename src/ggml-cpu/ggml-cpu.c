@@ -8745,7 +8745,7 @@ static void ggml_compute_forward_istft_f32(
     const int min_spt = ith * spt;
     const int max_spt = MIN(min_spt+spt, ne0);
     const int ir0 = ith == 0 ? 0 : (min_spt / hop) - poa;
-    const int ir1 = MAX((max_spt / hop) + pob, ne01);
+    const int ir1 = MIN((max_spt / hop) + pob, ne01);
 
     bool onesided = ne00 == half + 1; 
     for (int b = 0; b < ne02; b++) {
