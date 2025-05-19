@@ -3,6 +3,7 @@ add_library(ggml-cpu
             ggml-cpu.cpp
             ggml-cpu-aarch64.c
             ggml-cpu-aarch64.h
+            ggml-cpu-ffast-math.c
             ggml-cpu-quants.c
             ggml-cpu-quants.h
             )
@@ -41,6 +42,10 @@ if (GGML_OPENMP)
         #endif()
     else()
         message(WARNING "OpenMP not found")
+    endif()
+
+    if (NOT MSVC)
+        set_source_files_properties(ggml-cpu-ffast-math.c PROPERTIES COMPILE_FLAGS -ffast-math)
     endif()
 endif()
 
