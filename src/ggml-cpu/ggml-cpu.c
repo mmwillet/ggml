@@ -1781,7 +1781,6 @@ inline static void ggml_vec_reci_f32 (const int n, float * y, const float * x) {
 inline static void ggml_vec_sqr_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = x[i]*x[i];   }
 inline static void ggml_vec_sqrt_f32 (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = sqrtf(x[i]); }
 inline static void ggml_vec_log_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = logf(x[i]);  }
-inline static void ggml_vec_sin_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = sinf(x[i]);  }
 inline static void ggml_vec_cos_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = cosf(x[i]);  }
 inline static void ggml_vec_abs_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = fabsf(x[i]); }
 inline static void ggml_vec_sgn_f32  (const int n, float * y, const float * x) { for (int i = 0; i < n; ++i) y[i] = (x[i] > 0.f) ? 1.f : ((x[i] < 0.f) ? -1.f : 0.f); }
@@ -5446,29 +5445,17 @@ static void ggml_compute_forward_log(
 
 // ggml_compute_forward_sin
 
+void ggml_compute_forward_sin_f32_ffast_math(struct ggml_tensor * dst);
+
 static void ggml_compute_forward_sin_f32(
         const struct ggml_compute_params * params,
         struct ggml_tensor * dst) {
-
-    const struct ggml_tensor * src0 = dst->src[0];
 
     if (params->ith != 0) {
         return;
     }
 
-    GGML_ASSERT(ggml_are_same_shape(src0, dst));
-
-    const int n  = ggml_nrows(src0);
-    const int nc = src0->ne[0];
-
-    GGML_ASSERT( dst->nb[0] == sizeof(float));
-    GGML_ASSERT(src0->nb[0] == sizeof(float));
-
-    for (int i = 0; i < n; i++) {
-        ggml_vec_sin_f32(nc,
-                (float *) ((char *) dst->data  + i*( dst->nb[1])),
-                (float *) ((char *) src0->data + i*(src0->nb[1])));
-    }
+    ggml_compute_forward_sin_f32_ffast_math(dst);
 }
 
 static void ggml_compute_forward_sin(
