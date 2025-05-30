@@ -855,22 +855,6 @@ struct ggml_object {
 
 static const size_t GGML_OBJECT_SIZE = sizeof(struct ggml_object);
 
-//
-// ggml context
-//
-
-struct ggml_context {
-    size_t mem_size;
-    void * mem_buffer;
-    bool   mem_buffer_owned;
-    bool   no_alloc;
-
-    int    n_objects;
-
-    struct ggml_object * objects_begin;
-    struct ggml_object * objects_end;
-};
-
 struct ggml_context_container {
     bool used;
 
@@ -974,7 +958,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 90, "GGML_OP_COUNT != 90");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1069,10 +1053,9 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(GGML_OP_COUNT == 81, "GGML_OP_COUNT != 81");
+static_assert(GGML_OP_COUNT == 90, "GGML_OP_COUNT != 90");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
-
 
 static const char * GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "ABS",
@@ -2202,6 +2185,163 @@ struct ggml_tensor * ggml_cos_inplace(
         struct ggml_context * ctx,
         struct ggml_tensor  * a) {
     return ggml_cos_impl(ctx, a, true);
+}
+
+// ggml_reciprocal
+
+static struct ggml_tensor * ggml_reciprocal_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_RECIPROCAL;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_reciprocal(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_reciprocal_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, true);
+}
+
+// ggml_stft
+
+static int64_t calculate_number_of_frames(int64_t length, size_t hop_length) {
+    return (int64_t)(length / (int64_t) hop_length) + 1;
+}
+
+struct ggml_tensor * ggml_stft(
+        struct ggml_context * ctx,
+        struct ggml_tensor * a,
+        struct ggml_tensor * w,
+        int filter_length,
+        int hop_length,
+        bool compute_abs_and_angle) {
+
+    // for simplicity I'm not including one-sided computation as part of stft. In order to obtain a one-sided
+    // view ggml_view will have to be used to chunk up the output appropriately.
+    const int64_t ne[4] = { filter_length, calculate_number_of_frames(a->ne[0], hop_length), a->ne[1], 2};
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
+
+    // ggml doesn't currently support a complex format, so operations typically performed against
+    // complex fft values need to be natively supported by stft and istft
+    result->op     = compute_abs_and_angle ? GGML_OP_AA_STFT : GGML_OP_STFT;
+    result->src[0] = a;
+    result->src[1] = w;
+
+    int32_t params[] = { (int32_t) filter_length, (int32_t) hop_length };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    return result;
+}
+
+// ggml_istft
+
+static int64_t calculate_original_length(int64_t frames, size_t hop_length) {
+    return (frames - 1) * (int64_t) hop_length;
+}
+
+// please note that this is not a true inversion of the stft as it does not remove the window
+//(if it was applied). Removal of the window should be accomplished by using ggml_mul against a 
+// static tensor of the squared sum of the original window.
+struct ggml_tensor * ggml_istft(
+        struct ggml_context * ctx,
+        struct ggml_tensor * a,
+        struct ggml_tensor * w,
+        int filter_length,
+        int hop_length,
+        bool from_abs_and_angle) {
+    const int64_t ne[4] = { calculate_original_length(a->ne[1], hop_length), a->ne[2], 1, 1};
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
+
+    // ggml doesn't currently support a complex format, so operations typically performed against
+    // complex fft values need to be natively supported by stft and istft
+    result->op     = from_abs_and_angle ? GGML_OP_AA_ISTFT : GGML_OP_ISTFT;
+    result->src[0] = a;
+    result->src[1] = w;
+
+    int32_t params[] = { (int32_t) filter_length, (int32_t) hop_length };
+    ggml_set_op_params(result, params, sizeof(params));
+
+    return result;
+}
+
+// ggml_round
+
+static struct ggml_tensor * ggml_round_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_ROUND;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_round(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_round_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_round_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_round_impl(ctx, a, true);
+}
+
+// ggml_mod
+
+static struct ggml_tensor * ggml_mod_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_MOD;
+    result->src[0] = a;
+    ggml_set_op_params_f32(result, 0, mod_val);
+
+    return result;
+}
+
+struct ggml_tensor * ggml_mod(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val) {
+    return ggml_mod_impl(ctx, a, mod_val, false);
+}
+
+struct ggml_tensor * ggml_mod_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val) {
+    return ggml_mod_impl(ctx, a, mod_val, true);
+}
+
+// ggml_cumsum
+
+struct ggml_tensor * ggml_cumsum(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    struct ggml_tensor * result =  ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_CUMSUM;
+    result->src[0] = a;
+
+    return result;
 }
 
 // ggml_sum
@@ -3711,7 +3851,12 @@ GGML_API struct ggml_tensor * ggml_conv_1d(
         int                   s0,
         int                   p0,
         int                   d0) {
-    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16); // [N, OL, IC * K]
+
+    enum ggml_type t = b->type;
+    if (a->type == GGML_TYPE_F16 || b->type == GGML_TYPE_F16) {
+        t = GGML_TYPE_F16;
+    }
+    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, t); // [N, OL, IC * K]
 
     struct ggml_tensor * result =
         ggml_mul_mat(ctx,
@@ -3736,8 +3881,8 @@ struct ggml_tensor* ggml_conv_1d_ph(
 
 // ggml_conv_transpose_1d
 
-static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-    return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
+static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d, int op) {
+    return (ins - 1) * s - 2 * p + d * (ks - 1) + op + 1;
 }
 
 GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
@@ -3746,21 +3891,24 @@ GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
         struct ggml_tensor  * b,
         int                   s0,
         int                   p0,
-        int                   d0) {
+        int                   d0,
+        int                   op0,
+        int                   g0) {
     GGML_ASSERT(ggml_is_matrix(b));
     GGML_ASSERT(a->ne[2] == b->ne[1]);
     GGML_ASSERT(a->ne[3] == 1);
 
-    GGML_ASSERT(p0 == 0);
+    GGML_ASSERT((p0 < s0 || p0 == 0) && s0 % p0 == 0);
     GGML_ASSERT(d0 == 1);
+    GGML_ASSERT(b->ne[1] % g0 == 0);
 
     const int64_t ne[4] = {
-        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-        a->ne[1], b->ne[2], 1,
+        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, p0, 1 /*d0*/, op0),
+        a->ne[1]*g0, b->ne[2], 1,
     };
     struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
 
-    int32_t params[] = { s0, p0, d0 };
+    int32_t params[] = { s0, p0, d0, g0 }; // we don't need to pass output padding down to the op as it is apparent from the shape of the output.
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_CONV_TRANSPOSE_1D;
@@ -4044,6 +4192,18 @@ static struct ggml_tensor * ggml_upscale_impl(
     struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
     result->op     = GGML_OP_UPSCALE;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_upscale_linear(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        int                   scale_factor) {
+
+    struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, a->ne[0] * scale_factor, a->ne[1], a->ne[2], a->ne[3]);
+    result->op     = GGML_OP_UPSCALE_LINEAR;
     result->src[0] = a;
 
     return result;

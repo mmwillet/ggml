@@ -222,7 +222,7 @@
 #define GGML_MAX_OP_PARAMS      64
 
 #ifndef GGML_MAX_NAME
-#   define GGML_MAX_NAME        64
+#   define GGML_MAX_NAME        128
 #endif
 
 #define GGML_DEFAULT_N_THREADS  4
@@ -348,7 +348,23 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
     struct ggml_object;
-    struct ggml_context;
+    
+    //
+    // ggml context
+    //
+
+    struct ggml_context {
+        size_t mem_size;
+        void * mem_buffer;
+        bool   mem_buffer_owned;
+        bool   no_alloc;
+
+        int    n_objects;
+
+        struct ggml_object * objects_begin;
+        struct ggml_object * objects_end;
+    };
+
     struct ggml_cgraph;
 
     // NOTE: always add types at the end of the enum to keep backward compatibility
@@ -495,6 +511,7 @@ extern "C" {
         GGML_OP_POOL_2D,
         GGML_OP_POOL_2D_BACK,
         GGML_OP_UPSCALE, // nearest interpolate
+        GGML_OP_UPSCALE_LINEAR, // linear interpolate
         GGML_OP_PAD,
         GGML_OP_ARANGE,
         GGML_OP_TIMESTEP_EMBEDDING,
@@ -527,6 +544,15 @@ extern "C" {
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
+
+        GGML_OP_RECIPROCAL,
+        GGML_OP_ROUND,
+        GGML_OP_MOD,
+        GGML_OP_CUMSUM,
+        GGML_OP_STFT,
+        GGML_OP_AA_STFT,
+        GGML_OP_ISTFT,
+        GGML_OP_AA_ISTFT,
 
         GGML_OP_COUNT,
     };
@@ -906,8 +932,41 @@ extern "C" {
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
 
+    GGML_API struct ggml_tensor * ggml_round(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a);
+
+    GGML_API struct ggml_tensor * ggml_round_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a);
+
+    // This is a floating point mod by the mod_val parameter
+    GGML_API struct ggml_tensor * ggml_mod(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a,
+            float mod_val);
+
+    GGML_API struct ggml_tensor * ggml_mod_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a,
+            float mod_val);
+
+    // reciprocal of each value in tensor a
+    GGML_API struct ggml_tensor * ggml_reciprocal(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_reciprocal_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a);
+
     // return scalar
     GGML_API struct ggml_tensor * ggml_sum(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a);
+
+    // cumulative sums along first axis (ne0)
+    GGML_API struct ggml_tensor * ggml_cumsum(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
 
@@ -1579,7 +1638,9 @@ extern "C" {
             struct ggml_tensor  * b,   // data
             int                   s0,  // stride
             int                   p0,  // padding
-            int                   d0); // dilation
+            int                   d0,  // dilation
+            int                   op0, // output padding
+            int                   g0); // groups
 
     GGML_API struct ggml_tensor * ggml_conv_2d(
             struct ggml_context * ctx,
@@ -1664,10 +1725,50 @@ extern "C" {
             float                 p0,
             float                 p1);
 
+    // Short-Time Fourier Transform is a type of fourier transform used to determine
+    // sinusoidal frequncy and phase content for windowed sections of a singal as it 
+    // changes over time. For Inverse STFT see #ggml_istft. The window should be generated
+    // separately as a static tensor (e.g. see "hann" window for more information)
+    // 
+    // compute_abs_and_angle describes whether to return the magnitude and phase 
+    // as an absolute and angle computation.
+    GGML_API struct ggml_tensor * ggml_stft(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a,
+            struct ggml_tensor * w, // the window
+            int filter_length,
+            int hop_length,
+            bool compute_abs_and_angle);
+
+    // Inverse Short-Time Fourier Transform is used to recover the orignal processed signal
+    // from the STFT operation.
+    // This implementation doesn't currently adjust by the squared sum of the passed window,
+    // as it is far more efficient to precompute and discretely apply the window as a squared sum
+    // after this operation.
+    //
+    // from_abs_and_angle describers whether to treat the concatenated magnitude and phase as 
+    // absolute and angle conformed tensors.
+    GGML_API struct ggml_tensor * ggml_istft(
+            struct ggml_context * ctx,
+            struct ggml_tensor * a, // magnitude + phase
+            struct ggml_tensor * w,
+            int filter_length,
+            int hop_length,
+            bool from_abs_and_angle);
+
     // nearest interpolate
     // multiplies ne0 and ne1 by scale factor
     // used in stable-diffusion
     GGML_API struct ggml_tensor * ggml_upscale(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            int                   scale_factor);
+
+
+    // linear interpolate
+    // multiplies ne0 by the scale factor
+    // Currently this implementation doesn't conform with pytorch and will need to be further adjusted
+    GGML_API struct ggml_tensor * ggml_upscale_linear(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
             int                   scale_factor);

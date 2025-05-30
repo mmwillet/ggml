@@ -69,6 +69,24 @@ typedef struct {
     int32_t  ne01;
     int32_t  ne02;
     int32_t  ne03;
+    int32_t  ne10;
+    int32_t  ne11;
+    int32_t  ne12;
+    int32_t  ne13;
+    int32_t  ne0;
+    int32_t  ne1;
+    int32_t  ne2;
+    int32_t  ne3;
+    uint32_t s0;
+    uint32_t p0;
+    uint32_t d0;
+} ggml_metal_kargs_conv_transpose;
+
+typedef struct {
+    int32_t  ne00;
+    int32_t  ne01;
+    int32_t  ne02;
+    int32_t  ne03;
     uint64_t nb00;
     uint64_t nb01;
     uint64_t nb02;
