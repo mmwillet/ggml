@@ -1623,6 +1623,14 @@ extern "C" {
             int                   p0,  // padding
             int                   d0); // dilation
 
+    GGML_API struct ggml_tensor * ggml_conv_1d_dw(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,   // convolution kernel
+            struct ggml_tensor  * b,   // data
+            int                   s0,  // stride
+            int                   p0,  // padding
+            int                   d0); // dilation
+
     // conv_1d with padding = half
     // alias for ggml_conv_1d(a, b, s, a->ne[0]/2, d)
     GGML_API struct ggml_tensor* ggml_conv_1d_ph(

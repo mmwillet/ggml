@@ -3844,6 +3844,29 @@ static int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p,
     return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
 }
 
+GGML_API struct ggml_tensor * ggml_conv_1d_dw(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    enum ggml_type t = b->type;
+    if (a->type == GGML_TYPE_F16 || b->type == GGML_TYPE_F16) {
+        t = GGML_TYPE_F16;
+    }
+    struct ggml_tensor * new_a = ggml_reshape_4d(ctx, a, a->ne[0], 1, a->ne[1], a->ne[2]);
+    struct ggml_tensor * new_b = ggml_reshape_4d(ctx, b, b->ne[0], 1, b->ne[1], b->ne[2]);
+
+    struct ggml_tensor * im2col = ggml_im2col(ctx, new_a, new_b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F32);
+
+    struct ggml_tensor * result = ggml_mul_mat(ctx, im2col, a);
+
+    result = ggml_reshape_3d(ctx, result, b->ne[0], b->ne[1], 1);
+
+    return result;
+}
+
 GGML_API struct ggml_tensor * ggml_conv_1d(
         struct ggml_context * ctx,
         struct ggml_tensor  * a,
