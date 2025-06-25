@@ -1652,6 +1652,24 @@ extern "C" {
             int                   p0,  // padding
             int                   d0); // dilation
 
+    GGML_API struct ggml_tensor * ggml_conv_transpose_1d_dw(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,   // convolution kernel
+            struct ggml_tensor  * b,   // data
+            int                   s0,  // stride
+            int                   p0,  // padding
+            int                   d0); // dilation
+
+    GGML_API struct ggml_tensor * ggml_conv_transpose_1d_ext(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,   // convolution kernel
+            struct ggml_tensor  * b,   // data
+            int                   s0,  // stride
+            int                   p0,  // padding
+            int                   d0,  // dilation
+            int                   op0, // output padding
+            int                   g0); // groups
+
     GGML_API struct ggml_tensor * ggml_conv_2d(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,   // convolution kernel

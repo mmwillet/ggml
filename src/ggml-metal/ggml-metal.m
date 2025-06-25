@@ -1643,8 +1643,10 @@ static bool ggml_metal_supports_op(const struct ggml_backend_metal_device_contex
         case GGML_OP_ACC:
         case GGML_OP_REPEAT:
         case GGML_OP_SCALE:
-        case GGML_OP_CONV_TRANSPOSE_1D:
             return true;
+        case GGML_OP_CONV_TRANSPOSE_1D:
+            // padding must be 0 and groups must be 1.
+            return op->op_params[1] == 0 && op->op_params[3] == 1;
         case GGML_OP_CLAMP:
             return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_SQR:
