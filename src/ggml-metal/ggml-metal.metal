@@ -3064,8 +3064,8 @@ kernel void kernel_conv_transpose_1d(
         const int32_t input_offset = c * args.IL;
 
         for (int64_t i = 0; i < args.IL; i++) {
-            if (tgpig[0] >= i * args.s0 && tgpig[0] < i * args.s0 + args.K) {
-                v += src0[kernel_offset + tgpig[0] - i * args.s0] * src1[input_offset + i];
+            if (tgpig[0] + args.p0 >= i * args.s0 && tgpig[0] + args.p0 < i * args.s0 + args.K) {
+                v += src0[kernel_offset + tgpig[0] + args.p0 - i * args.s0] * src1[input_offset + i];
             }
         }
     }
