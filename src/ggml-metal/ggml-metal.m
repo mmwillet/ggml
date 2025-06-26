@@ -1645,8 +1645,8 @@ static bool ggml_metal_supports_op(const struct ggml_backend_metal_device_contex
         case GGML_OP_SCALE:
             return true;
         case GGML_OP_CONV_TRANSPOSE_1D:
-            // padding must be 0 and groups must be 1.
-            return op->op_params[1] == 0 && op->op_params[3] == 1;
+            // groups must be 1.
+            return op->op_params[3] == 1;
         case GGML_OP_CLAMP:
             return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_SQR:
@@ -4095,6 +4095,7 @@ static bool ggml_metal_encode_node(
                 GGML_ASSERT( dst->type == GGML_TYPE_F32);
 
                 const int32_t s0 = ((const int32_t *)(dst->op_params))[0];
+                const int32_t p0 = ((const int32_t *)(dst->op_params))[1];
 
                 const int32_t IC = src1->ne[1];
                 const int32_t IL = src1->ne[0];
@@ -4121,6 +4122,7 @@ static bool ggml_metal_encode_node(
                     /*.IL =*/ IL,
                     /*.K  =*/ K,
                     /*.s0 =*/ s0,
+                    /*.p0 =*/ p0,
                     /*.nb0 =*/ nb0,
                     /*.nb1 =*/ nb1,
                 };
