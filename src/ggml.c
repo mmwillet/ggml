@@ -4257,10 +4257,14 @@ static struct ggml_tensor * ggml_upscale_impl(
         int                   ne2,
         int                   ne3,
         enum ggml_scale_mode  mode) {
+
+    // In line with the pytorch implementation of linear interpolation which only allows for scaling against the
+    // final dimension of a three dimensional tensor (i.e. ne0 of the ggml tensor), we do not allow linear upscaling
+    // to be performed against any other dimension.
     GGML_ASSERT(a->ne[0] <= ne0);
-    GGML_ASSERT(a->ne[1] <= ne1);
-    GGML_ASSERT(a->ne[2] <= ne2);
-    GGML_ASSERT(a->ne[3] <= ne3);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[1] <= ne1) || a->ne[1] == ne1);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[2] <= ne2) || a->ne[2] == ne2);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[3] <= ne3) || a->ne[3] == ne3);
 
     struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
