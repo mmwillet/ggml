@@ -1706,6 +1706,22 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_cos(params, tensor);
             } break;
+        case GGML_OP_CUMSUM:
+            {
+                ggml_compute_forward_cumsum(params, tensor);
+            } break;
+        case GGML_OP_RECIPROCAL:
+            {
+                ggml_compute_forward_reciprocal(params, tensor);
+            }
+        case GGML_OP_MOD:
+            {
+                ggml_compute_forward_mod(params, tensor);
+            } break;
+        case GGML_OP_ROUND:
+            {
+                ggml_compute_forward_round(params, tensor);
+            }
         case GGML_OP_SUM:
             {
                 ggml_compute_forward_sum(params, tensor);
@@ -2106,6 +2122,9 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_LOG:
         case GGML_OP_SIN:
         case GGML_OP_COS:
+        case GGML_OP_MOD:
+        case GGML_OP_RECIPROCAL:
+        case GGML_OP_ROUND:
         case GGML_OP_SUM:
         case GGML_OP_SUM_ROWS:
         case GGML_OP_MEAN:
@@ -2114,6 +2133,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
                 n_tasks = 1;
             } break;
         case GGML_OP_COUNT_EQUAL:
+        case GGML_OP_CUMSUM:
             {
                 n_tasks = n_threads;
             } break;
@@ -2139,7 +2159,6 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
                     {
                         n_tasks = 1;
                     } break;
-
                 case GGML_UNARY_OP_GELU:
                 case GGML_UNARY_OP_GELU_ERF:
                 case GGML_UNARY_OP_GELU_QUICK:

@@ -1825,6 +1825,113 @@ void ggml_compute_forward_acc(
     }
 }
 
+// ggml_compute_forward_mod
+
+static void ggml_compute_forward_mod_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+
+    if (ith != 0) {
+        return;
+    }
+    const float mod_val = ((float *) dst->op_params)[0];
+
+    GGML_ASSERT(ggml_are_same_shape(src0, dst));
+
+    const int n  = ggml_nrows(src0);
+    const int nc = src0->ne[0];
+
+    GGML_ASSERT( dst->nb[0] == sizeof(float));
+    GGML_ASSERT(src0->nb[0] == sizeof(float));
+
+    for (int i = 0; i < n; i++) {
+        ggml_vec_mod_f32(nc,
+                (float *) ((char *) dst->data  + i*( dst->nb[1])),
+                (float *) ((char *) src0->data + i*(src0->nb[1])),
+                mod_val);
+    }
+}
+
+void ggml_compute_forward_mod(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_mod_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+
+
+// ggml_compute_forward_cumsum
+
+static void ggml_compute_forward_cumsum_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    GGML_TENSOR_UNARY_OP_LOCALS;
+
+    if (ith > ne1) {
+        return;
+    }
+
+    const int rpt = (ne1 + nth - 1)/nth;
+    // row range for this thread
+    const int ir0 = rpt * ith;
+    const int ir1 = MIN(ir0 + rpt, ne1);
+
+    if (ir0 > ne1) {
+        return;
+    }
+
+    for (int i3 = 0; i3 < ne3; i3++) {
+        for (int b = 0; b < ne2; b++) {
+            for (int i1 = ir0; i1 < ir1; i1++) {
+                float running = 0.0f;
+                float * tgt_data = (float *)((char *) src0->data + i1*nb01 + b*nb02 + i3*nb03);
+                float * dst_data = (float *)((char *) dst->data + i1*nb1 + b*nb2 + i3*nb3);
+                for (int ii = 0; ii < ne0; ii++) {
+                    running += tgt_data[ii];
+                    dst_data[ii] = running;
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_cumsum(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_cumsum_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // ggml_compute_forward_sum
 
 static void ggml_compute_forward_sum_f32(

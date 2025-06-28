@@ -441,6 +441,10 @@ extern "C" {
         GGML_OP_LOG,
         GGML_OP_SIN,
         GGML_OP_COS,
+        GGML_OP_RECIPROCAL,
+        GGML_OP_ROUND,
+        GGML_OP_MOD,
+        GGML_OP_CUMSUM,
         GGML_OP_SUM,
         GGML_OP_SUM_ROWS,
         GGML_OP_MEAN,
@@ -902,6 +906,40 @@ extern "C" {
     GGML_API struct ggml_tensor * ggml_cos_inplace(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_reciprocal(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_reciprocal_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_round(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_round_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_mod(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val);
+
+    GGML_API struct ggml_tensor * ggml_mod_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val);
+
+    GGML_API struct ggml_tensor * ggml_cumsum(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
+
+    GGML_API struct ggml_tensor * ggml_cumsum_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a);
 
     // return scalar
     GGML_API struct ggml_tensor * ggml_sum(
