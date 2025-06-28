@@ -4094,8 +4094,8 @@ struct ggml_tensor * ggml_conv_1d_dw_ph(
 
 // ggml_conv_transpose_1d
 
-static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-    return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
+static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d, int op) {
+    return (ins - 1) * s - 2 * p + d * (ks - 1) + op + 1;
 }
 
 GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
@@ -4105,26 +4105,52 @@ GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
         int                   s0,
         int                   p0,
         int                   d0) {
+    return ggml_conv_transpose_1d_ext(ctx, a, b, s0, p0, d0, 0, 1);
+}
+
+struct ggml_tensor * ggml_conv_transpose_1d_dw(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    return ggml_conv_transpose_1d_ext(ctx, a, b, s0, p0, d0, 0, a->ne[2]);
+}
+
+struct ggml_tensor * ggml_conv_transpose_1d_ext(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0,
+        int                   op0,
+        int                   g0) {
     GGML_ASSERT(ggml_is_matrix(b));
     GGML_ASSERT(a->ne[2] == b->ne[1]);
     GGML_ASSERT(a->ne[3] == 1);
-
-    GGML_ASSERT(p0 == 0);
+    // This does not represent a real limitation in convolutional transposition. Rather, for simplicity the
+    // implementation currently assumes that padding is never greater than stride.
+    GGML_ASSERT(p0 < s0);
     GGML_ASSERT(d0 == 1);
+    // currently the implementation only supports groups of 1 or depthwise operations.
+    GGML_ASSERT(a->ne[2] == g0 || g0 == 1);
+    GGML_ASSERT(b->ne[1] % g0 == 0);
 
     const int64_t ne[4] = {
-        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-        a->ne[1], b->ne[2], 1,
+        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, p0, d0, op0),
+        a->ne[1]*g0, b->ne[2], 1,
     };
     struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
 
-    int32_t params[] = { s0, p0, d0 };
+    // we don't need to pass output padding to the op because it can be inferred from the result shape.
+    int32_t params[] = { s0, p0, d0, g0 };
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_CONV_TRANSPOSE_1D;
     result->src[0] = a;
     result->src[1] = b;
-
     return result;
 }
 

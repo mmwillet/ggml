@@ -5721,6 +5721,14 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     GGML_ASSERT(nb00 == sizeof(ggml_fp16_t));
     GGML_ASSERT(nb10 == sizeof(float));
 
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
+
+    // These are variables that are adjusted by the group parameter.
+    // Currently these variables are written to only support depthwise groups or standard groups (i.e. g0 == 1).
+    const int gw_ne02 = g0 == 1 ? ne02 : 1;
+    const int gw_offset = g0 == 1 ? 0 : 1;
+    const int kernel_fpr = g0 == 1 ? ne02*ne00 : 1;
+
     if (ith == 0) {
         memset(params->wdata, 0, params->wsize);
 
@@ -5758,6 +5766,7 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -5774,15 +5783,18 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        ggml_fp16_t * wdata_kernel = wdata + i1*ne02*ne00;
+        ggml_fp16_t * wdata_kernel = wdata + i1*kernel_fpr;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            // when applying depthwise groups we have to offset the data by the group index
+            const int i1n = i10*ne11 + i1*gw_offset;
             for (int i00 = 0; i00 < ne00; i00++) {
-                float v = 0;
-                ggml_vec_dot_f16(ne02, &v, 0,
-                        (ggml_fp16_t *)    wdata_src + i1n, 0,
-                        (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    float v = 0.0f;
+                    ggml_vec_dot_f16(gw_ne02, &v, 0,
+                            (ggml_fp16_t *)    wdata_src + i1n, 0,
+                            (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
+                    dst_data[i10*s0 + i00 - p0] += v;
+                }
             }
         }
     }
@@ -5808,6 +5820,14 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     GGML_ASSERT(nb00 == sizeof(float));
     GGML_ASSERT(nb10 == sizeof(float));
+
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
+
+    // These are variables that are adjusted by the group parameter.
+    // Currently these variables are written to only support depthwise groups or standard groups (i.e. g0 == 1).
+    const int gw_ne02 = g0 == 1 ? ne02 : 1;
+    const int gw_offset = g0 == 1 ? 0 : 1;
+    const int kernel_fpr = g0 == 1 ? ne02*ne00 : 1;
 
     if (ith == 0) {
         memset(params->wdata, 0, params->wsize);
@@ -5846,6 +5866,7 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -5862,15 +5883,17 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        float * wdata_kernel = wdata + i1*ne02*ne00;
+        float * wdata_kernel = wdata + i1*kernel_fpr;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            const int i1n = i10*ne11 + i10*gw_offset;
             for (int i00 = 0; i00 < ne00; i00++) {
-                float v = 0;
-                ggml_vec_dot_f32(ne02, &v, 0,
-                        wdata_src + i1n, 0,
-                        wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    float v = 0.0f;
+                    ggml_vec_dot_f32(gw_ne02, &v, 0,
+                            wdata_src + i1n, 0,
+                            wdata_kernel + i00*ne02, 0, 1);
+                    dst_data[i10*s0 + i00 - p0] += v;
+                }
             }
         }
     }

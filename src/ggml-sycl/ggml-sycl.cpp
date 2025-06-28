@@ -4182,9 +4182,11 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
     switch (op->op) {
         case GGML_OP_CONV_TRANSPOSE_1D:
             {
+                const int p0 = ((const int32_t *) op->op_params)[1];
+                const int g0 = ((const int32_t *) op->op_params)[3];
                 ggml_type src0_type = op->src[0]->type;
                 ggml_type src1_type = op->src[1]->type;
-                if (src0_type == GGML_TYPE_F32 && src1_type == GGML_TYPE_F32) {
+                if (p0 == 0 && g0 == 1 && src0_type == GGML_TYPE_F32 && src1_type == GGML_TYPE_F32) {
                     return true;
                 }
                 return false;
