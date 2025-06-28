@@ -89,8 +89,17 @@ void test_conv_transpose_1d(void) {
         {24.0, 27.0, 0.0, 34.0, 39.0, 0.0, 44.0, 51.0},
         {30.0, 33.0, 0.0, 44.0, 49.0, 0.0, 58.0, 65.0},
     };
+    float expected_out_4[2][4] = {
+        {0.0,  0.0,  1.0,  2.0},
+        {6.0, 17.0, 22.0, 15.0},
+    };
+    float expected_out_5[3][5] = {
+        {21.0, 24.0, 29.0, 30.0, 37.0},
+        {27.0, 34.0, 39.0, 44.0, 51.0},
+        {33.0, 44.0, 49.0, 58.0, 65.0},
+    };
 
-    // conv transpose 1d with stride 1, 2 & 3
+    // conv transpose 1d with stride 1, 2, 3, depthwise true, and stride 2 + output padding 1 + padding 1.
     {
         struct ggml_context * ctx = make_ctx();
 
@@ -100,25 +109,39 @@ void test_conv_transpose_1d(void) {
         struct ggml_tensor * k = ggml_new_tensor_3d(ctx, GGML_TYPE_F16, 2, 3, 2); // k x cout x cin
         memcpy(k->data, buf_f16, ggml_nbytes(k));
 
+        struct ggml_tensor * k_gw = ggml_new_tensor_3d(ctx, GGML_TYPE_F16, 2, 1, 2); // k x cout / g0 x cin
+        memcpy(k_gw->data, buf_f16, ggml_nbytes(k));
+
+
         struct ggml_tensor * out_1 = ggml_conv_transpose_1d(ctx, k, t, 1 /* s0 */, 0 /* p0 */, 1 /* d0 */);
         struct ggml_tensor * out_2 = ggml_conv_transpose_1d(ctx, k, t, 2 /* s0 */, 0 /* p0 */, 1 /* d0 */);
         struct ggml_tensor * out_3 = ggml_conv_transpose_1d(ctx, k, t, 3 /* s0 */, 0 /* p0 */, 1 /* d0 */);
+        struct ggml_tensor * out_4 = ggml_conv_transpose_1d_dw(ctx, k_gw, t, 1 /* s0 */, 0 /* p0 */, 1 /* d0 */);
+        struct ggml_tensor * out_5 = ggml_conv_transpose_1d_ext(ctx, k, t, 2 /* s0 */, 1 /* p0 */, 1 /* d0 */, 1 /* op0 */, 1 /* g0 */);
 
         struct ggml_cgraph * gf_1 = ggml_new_graph(ctx);
         struct ggml_cgraph * gf_2 = ggml_new_graph(ctx);
         struct ggml_cgraph * gf_3 = ggml_new_graph(ctx);
+        struct ggml_cgraph * gf_4 = ggml_new_graph(ctx);
+        struct ggml_cgraph * gf_5 = ggml_new_graph(ctx);
 
         ggml_build_forward_expand(gf_1, out_1);
         ggml_build_forward_expand(gf_2, out_2);
         ggml_build_forward_expand(gf_3, out_3);
+        ggml_build_forward_expand(gf_4, out_4);
+        ggml_build_forward_expand(gf_5, out_5);
 
         ggml_graph_compute_with_ctx(ctx, gf_1, 1);
         ggml_graph_compute_with_ctx(ctx, gf_2, 1);
         ggml_graph_compute_with_ctx(ctx, gf_3, 1);
+        ggml_graph_compute_with_ctx(ctx, gf_4, 1);
+        ggml_graph_compute_with_ctx(ctx, gf_5, 1);
 
         check_tensor(out_1, (float*)expected_out_1, 4, 3, 1);
         check_tensor(out_2, (float*)expected_out_2, 6, 3, 1);
         check_tensor(out_3, (float*)expected_out_3, 8, 3, 1);
+        check_tensor(out_4, (float*)expected_out_4, 4, 2, 1);
+        check_tensor(out_5, (float*)expected_out_5, 5, 3, 1);
     }
 }
 

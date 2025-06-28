@@ -91,6 +91,8 @@ inline static void ggml_vec_div_f16 (const int n, ggml_fp16_t * z, const ggml_fp
         z[i] = GGML_FP32_TO_FP16(GGML_FP16_TO_FP32(x[i]) / GGML_FP16_TO_FP32(y[i]));
     }
 }
+inline static void ggml_vec_mod_f32  (const int n, float * y, const float * x, const float mod_val) { for (int i = 0; i < n; ++i) y[i] = fmod(x[i], mod_val); }
+
 
 // compute GGML_VEC_DOT_UNROLL dot products at once
 // xs - x row stride in bytes

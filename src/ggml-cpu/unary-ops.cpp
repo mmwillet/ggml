@@ -64,6 +64,14 @@ static inline float op_log(float x) {
     return logf(x);
 }
 
+static inline float op_reciprocal(float x) {
+    return 1.0f/x;
+}
+
+static inline float op_round(float x) {
+    return (float)((int) (x + 0.5f));
+}
+
 template <float (*op)(float), typename src0_t, typename dst_t>
 static inline void vec_unary_op(int64_t n, dst_t * y, const src0_t * x) {
     constexpr auto src0_to_f32 = type_conversion_table<src0_t>::to_f32;
@@ -179,6 +187,14 @@ void ggml_compute_forward_sin(const ggml_compute_params * params, ggml_tensor * 
 
 void ggml_compute_forward_cos(const ggml_compute_params * params, ggml_tensor * dst) {
     unary_op<op_cos>(params, dst);
+}
+
+void ggml_compute_forward_reciprocal(const ggml_compute_params * params, ggml_tensor * dst) {
+    unary_op<op_reciprocal>(params, dst);
+}
+
+void ggml_compute_forward_round(const ggml_compute_params * params, ggml_tensor * dst) {
+    unary_op<op_round>(params, dst);
 }
 
 void ggml_compute_forward_log(const ggml_compute_params * params, ggml_tensor * dst) {

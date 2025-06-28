@@ -2199,12 +2199,14 @@ static bool ggml_backend_cann_supports_op(ggml_backend_dev_t dev,
         case GGML_OP_ARGMAX:
         case GGML_OP_COS:
         case GGML_OP_SIN:
-        case GGML_OP_CONV_TRANSPOSE_1D:
         case GGML_OP_LOG:
         case GGML_OP_MEAN:
         case GGML_OP_PAD_REFLECT_1D:
         case GGML_OP_COUNT_EQUAL:
             return true;
+        case GGML_OP_CONV_TRANSPOSE_1D:
+            // padding must be zero and groups must be 1.
+            return op->op_params[1] == 0 && op->op_params[3] == 1;
         case GGML_OP_FLASH_ATTN_EXT:{
             // derived from [ggml-cuda.cu]
             if(op->src[1]->type != GGML_TYPE_F16 || op->src[2]->type != GGML_TYPE_F16){

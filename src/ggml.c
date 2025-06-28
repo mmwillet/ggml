@@ -986,7 +986,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "OPT_STEP_ADAMW",
 };
 
-static_assert(GGML_OP_COUNT == 83, "GGML_OP_COUNT != 83");
+static_assert(GGML_OP_COUNT == 87, "GGML_OP_COUNT != 87");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1082,7 +1082,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "adamw(x)",
 };
 
-static_assert(GGML_OP_COUNT == 83, "GGML_OP_COUNT != 83");
+static_assert(GGML_OP_COUNT == 87, "GGML_OP_COUNT != 87");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -2220,6 +2220,115 @@ struct ggml_tensor * ggml_cos_inplace(
         struct ggml_tensor  * a) {
     return ggml_cos_impl(ctx, a, true);
 }
+
+// ggml_reciprocal
+
+static struct ggml_tensor * ggml_reciprocal_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_RECIPROCAL;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_reciprocal(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_reciprocal_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_reciprocal_impl(ctx, a, true);
+}
+
+// ggml_round
+
+static struct ggml_tensor * ggml_round_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_ROUND;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_round(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_round_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_round_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_round_impl(ctx, a, true);
+}
+
+// ggml_mod
+
+static struct ggml_tensor * ggml_mod_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_MOD;
+    result->src[0] = a;
+    ggml_set_op_params_f32(result, 0, mod_val);
+
+    return result;
+}
+
+struct ggml_tensor * ggml_mod(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val) {
+    return ggml_mod_impl(ctx, a, mod_val, false);
+}
+
+struct ggml_tensor * ggml_mod_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 mod_val) {
+    return ggml_mod_impl(ctx, a, mod_val, true);
+}
+
+// ggml_cumsum
+
+static struct ggml_tensor * ggml_cumsum_impl(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        bool                  inplace) {
+    struct ggml_tensor * result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+    result->op     = GGML_OP_CUMSUM;
+    result->src[0] = a;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_cumsum(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_cumsum_impl(ctx, a, false);
+}
+
+struct ggml_tensor * ggml_cumsum_inplace(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_cumsum_impl(ctx, a, true);
+}
+
 
 // ggml_sum
 
@@ -3985,8 +4094,8 @@ struct ggml_tensor * ggml_conv_1d_dw_ph(
 
 // ggml_conv_transpose_1d
 
-static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-    return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
+static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d, int op) {
+    return (ins - 1) * s - 2 * p + d * (ks - 1) + op + 1;
 }
 
 GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
@@ -3996,26 +4105,52 @@ GGML_API struct ggml_tensor * ggml_conv_transpose_1d(
         int                   s0,
         int                   p0,
         int                   d0) {
+    return ggml_conv_transpose_1d_ext(ctx, a, b, s0, p0, d0, 0, 1);
+}
+
+struct ggml_tensor * ggml_conv_transpose_1d_dw(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0) {
+    return ggml_conv_transpose_1d_ext(ctx, a, b, s0, p0, d0, 0, a->ne[2]);
+}
+
+struct ggml_tensor * ggml_conv_transpose_1d_ext(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        struct ggml_tensor  * b,
+        int                   s0,
+        int                   p0,
+        int                   d0,
+        int                   op0,
+        int                   g0) {
     GGML_ASSERT(ggml_is_matrix(b));
     GGML_ASSERT(a->ne[2] == b->ne[1]);
     GGML_ASSERT(a->ne[3] == 1);
-
-    GGML_ASSERT(p0 == 0);
+    // This does not represent a real limitation in convolutional transposition. Rather, for simplicity the
+    // implementation currently assumes that padding is never greater than stride.
+    GGML_ASSERT(p0 < s0);
     GGML_ASSERT(d0 == 1);
+    // currently the implementation only supports groups of 1 or depthwise operations.
+    GGML_ASSERT(a->ne[2] == g0 || g0 == 1);
+    GGML_ASSERT(b->ne[1] % g0 == 0);
 
     const int64_t ne[4] = {
-        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-        a->ne[1], b->ne[2], 1,
+        ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, p0, d0, op0),
+        a->ne[1]*g0, b->ne[2], 1,
     };
     struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
 
-    int32_t params[] = { s0, p0, d0 };
+    // we don't need to pass output padding to the op because it can be inferred from the result shape.
+    int32_t params[] = { s0, p0, d0, g0 };
     ggml_set_op_params(result, params, sizeof(params));
 
     result->op     = GGML_OP_CONV_TRANSPOSE_1D;
     result->src[0] = a;
     result->src[1] = b;
-
     return result;
 }
 
@@ -4257,10 +4392,14 @@ static struct ggml_tensor * ggml_upscale_impl(
         int                   ne2,
         int                   ne3,
         enum ggml_scale_mode  mode) {
+
+    // In line with the pytorch implementation of linear interpolation which only allows for scaling against the
+    // final dimension of a three dimensional tensor (i.e. ne0 of the ggml tensor), we do not allow linear upscaling
+    // to be performed against any other dimension.
     GGML_ASSERT(a->ne[0] <= ne0);
-    GGML_ASSERT(a->ne[1] <= ne1);
-    GGML_ASSERT(a->ne[2] <= ne2);
-    GGML_ASSERT(a->ne[3] <= ne3);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[1] <= ne1) || a->ne[1] == ne1);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[2] <= ne2) || a->ne[2] == ne2);
+    GGML_ASSERT((mode != GGML_SCALE_MODE_LINEAR && a->ne[3] <= ne3) || a->ne[3] == ne3);
 
     struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 

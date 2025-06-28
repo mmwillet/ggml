@@ -6516,7 +6516,9 @@ static vk_pipeline ggml_vk_op_get_pipeline(ggml_backend_vk_context * ctx, const 
         }
         return nullptr;
     case GGML_OP_CONV_TRANSPOSE_1D:
-        if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+        const int p0 = ((const int32_t *) dst->op_params)[1];
+        const int g0 = ((const int32_t *) dst->op_params)[3];
+        if (g0 == 1 && p0 == 0 && src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
             return ctx->device->pipeline_conv_transpose_1d_f32;
         }
         return nullptr;
@@ -10201,7 +10203,11 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
         case GGML_OP_OPT_STEP_ADAMW:
             return true;
         case GGML_OP_CONV_TRANSPOSE_1D:
-            return op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32;
+            {
+                const int p0 = ((const int32_t *) op->op_params)[1];
+                const int g0 = ((const int32_t *) op->op_params)[3];
+                return g0 == 1 && p0 == 0 && op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32;
+            } break;
         default:
             return false;
     }
@@ -10698,7 +10704,8 @@ static void ggml_vk_check_results_0(ggml_tensor * tensor) {
         const int32_t s0 = tensor->op_params[0];
         const int32_t p0 = tensor->op_params[1];
         const int32_t d0 = tensor->op_params[2];
-        tensor_clone = ggml_conv_transpose_1d(ggml_ctx, src_clone[0], src_clone[1], s0, p0, d0);
+        const int32_t g0 = tensor->op_params[3];
+        tensor_clone = ggml_conv_transpose_1d(ggml_ctx, src_clone[0], src_clone[1], s0, p0, d0, 0, g0);
     } else if (tensor->op == GGML_OP_POOL_2D) {
         enum ggml_op_pool op = static_cast<ggml_op_pool>(tensor->op_params[0]);
         const int32_t k0 = tensor->op_params[1];

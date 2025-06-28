@@ -1825,6 +1825,113 @@ void ggml_compute_forward_acc(
     }
 }
 
+// ggml_compute_forward_mod
+
+static void ggml_compute_forward_mod_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+
+    if (ith != 0) {
+        return;
+    }
+    const float mod_val = ((float *) dst->op_params)[0];
+
+    GGML_ASSERT(ggml_are_same_shape(src0, dst));
+
+    const int n  = ggml_nrows(src0);
+    const int nc = src0->ne[0];
+
+    GGML_ASSERT( dst->nb[0] == sizeof(float));
+    GGML_ASSERT(src0->nb[0] == sizeof(float));
+
+    for (int i = 0; i < n; i++) {
+        ggml_vec_mod_f32(nc,
+                (float *) ((char *) dst->data  + i*( dst->nb[1])),
+                (float *) ((char *) src0->data + i*(src0->nb[1])),
+                mod_val);
+    }
+}
+
+void ggml_compute_forward_mod(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_mod_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
+
+
+// ggml_compute_forward_cumsum
+
+static void ggml_compute_forward_cumsum_f32(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+    const struct ggml_tensor * src0 = dst->src[0];
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    GGML_TENSOR_UNARY_OP_LOCALS;
+
+    if (ith > ne1) {
+        return;
+    }
+
+    const int rpt = (ne1 + nth - 1)/nth;
+    // row range for this thread
+    const int ir0 = rpt * ith;
+    const int ir1 = MIN(ir0 + rpt, ne1);
+
+    if (ir0 > ne1) {
+        return;
+    }
+
+    for (int i3 = 0; i3 < ne3; i3++) {
+        for (int b = 0; b < ne2; b++) {
+            for (int i1 = ir0; i1 < ir1; i1++) {
+                float running = 0.0f;
+                float * tgt_data = (float *)((char *) src0->data + i1*nb01 + b*nb02 + i3*nb03);
+                float * dst_data = (float *)((char *) dst->data + i1*nb1 + b*nb2 + i3*nb3);
+                for (int ii = 0; ii < ne0; ii++) {
+                    running += tgt_data[ii];
+                    dst_data[ii] = running;
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_cumsum(
+        const struct ggml_compute_params * params,
+        struct ggml_tensor * dst) {
+
+    const struct ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_cumsum_f32(params, dst);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // ggml_compute_forward_sum
 
 static void ggml_compute_forward_sum_f32(
@@ -5614,6 +5721,14 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     GGML_ASSERT(nb00 == sizeof(ggml_fp16_t));
     GGML_ASSERT(nb10 == sizeof(float));
 
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
+
+    // These are variables that are adjusted by the group parameter.
+    // Currently these variables are written to only support depthwise groups or standard groups (i.e. g0 == 1).
+    const int gw_ne02 = g0 == 1 ? ne02 : 1;
+    const int gw_offset = g0 == 1 ? 0 : 1;
+    const int kernel_fpr = g0 == 1 ? ne02*ne00 : 1;
+
     if (ith == 0) {
         memset(params->wdata, 0, params->wsize);
 
@@ -5651,6 +5766,7 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -5667,15 +5783,18 @@ static void ggml_compute_forward_conv_transpose_1d_f16_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        ggml_fp16_t * wdata_kernel = wdata + i1*ne02*ne00;
+        ggml_fp16_t * wdata_kernel = wdata + i1*kernel_fpr;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            // when applying depthwise groups we have to offset the data by the group index
+            const int i1n = i10*ne11 + i1*gw_offset;
             for (int i00 = 0; i00 < ne00; i00++) {
-                float v = 0;
-                ggml_vec_dot_f16(ne02, &v, 0,
-                        (ggml_fp16_t *)    wdata_src + i1n, 0,
-                        (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    float v = 0.0f;
+                    ggml_vec_dot_f16(gw_ne02, &v, 0,
+                            (ggml_fp16_t *)    wdata_src + i1n, 0,
+                            (ggml_fp16_t *) wdata_kernel + i00*ne02, 0, 1);
+                    dst_data[i10*s0 + i00 - p0] += v;
+                }
             }
         }
     }
@@ -5701,6 +5820,14 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     GGML_ASSERT(nb00 == sizeof(float));
     GGML_ASSERT(nb10 == sizeof(float));
+
+    const int32_t g0 = ((const int32_t*)(dst->op_params))[3];
+
+    // These are variables that are adjusted by the group parameter.
+    // Currently these variables are written to only support depthwise groups or standard groups (i.e. g0 == 1).
+    const int gw_ne02 = g0 == 1 ? ne02 : 1;
+    const int gw_offset = g0 == 1 ? 0 : 1;
+    const int kernel_fpr = g0 == 1 ? ne02*ne00 : 1;
 
     if (ith == 0) {
         memset(params->wdata, 0, params->wsize);
@@ -5739,6 +5866,7 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
     ggml_barrier(params->threadpool);
 
     const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+    const int32_t p0 = ((const int32_t*)(dst->op_params))[1];
 
     // total rows in dst
     const int nr = ne1;
@@ -5755,15 +5883,17 @@ static void ggml_compute_forward_conv_transpose_1d_f32(
 
     for (int i1 = ir0; i1 < ir1; i1++) {
         float * dst_data = (float *)((char *) dst->data + i1*nb1);
-        float * wdata_kernel = wdata + i1*ne02*ne00;
+        float * wdata_kernel = wdata + i1*kernel_fpr;
         for (int i10 = 0; i10 < ne10; i10++) {
-            const int i1n = i10*ne11;
+            const int i1n = i10*ne11 + i10*gw_offset;
             for (int i00 = 0; i00 < ne00; i00++) {
-                float v = 0;
-                ggml_vec_dot_f32(ne02, &v, 0,
-                        wdata_src + i1n, 0,
-                        wdata_kernel + i00*ne02, 0, 1);
-                dst_data[i10*s0 + i00] += v;
+                if ((i10 * s0 < p0 && i00 >= p0) || (i10 * s0 >= p0 && i10 * s0 + i00 - p0 < ne0)) {
+                    float v = 0.0f;
+                    ggml_vec_dot_f32(gw_ne02, &v, 0,
+                            wdata_src + i1n, 0,
+                            wdata_kernel + i00*ne02, 0, 1);
+                    dst_data[i10*s0 + i00 - p0] += v;
+                }
             }
         }
     }
@@ -6614,71 +6744,104 @@ static void ggml_compute_forward_upscale_f32(
     const float sf3 = (float)ne3/src0->ne[3];
 
     const ggml_scale_mode mode = (ggml_scale_mode) ggml_get_op_params_i32(dst, 0);
+    switch (mode) {
+        case GGML_SCALE_MODE_NEAREST:
+            {
+                for (int64_t i3 = 0; i3 < ne3; i3++) {
+                    const int64_t i03 = i3 / sf3;
+                    for (int64_t i2 = ith; i2 < ne2; i2 += nth) {
+                        const int64_t i02 = i2 / sf2;
+                        for (int64_t i1 = 0; i1 < ne1; i1++) {
+                            const int64_t i01 = i1 / sf1;
+                            for (int64_t i0 = 0; i0 < ne0; i0++) {
+                                const int64_t i00 = i0 / sf0;
 
-    if (mode == GGML_SCALE_MODE_NEAREST) {
-        for (int64_t i3 = 0; i3 < ne3; i3++) {
-            const int64_t i03 = i3 / sf3;
-            for (int64_t i2 = ith; i2 < ne2; i2 += nth) {
-                const int64_t i02 = i2 / sf2;
-                for (int64_t i1 = 0; i1 < ne1; i1++) {
-                    const int64_t i01 = i1 / sf1;
-                    for (int64_t i0 = 0; i0 < ne0; i0++) {
-                        const int64_t i00 = i0 / sf0;
+                                const float * x = (float *)((char *) src0->data + i00*nb00 + i01*nb01 + i02*nb02 + i03*nb03);
+                                      float * y = (float *)((char *)  dst->data +  i0*nb0  +  i1*nb1  +  i2*nb2  +  i3*nb3);
 
-                        const float * x = (float *)((char *) src0->data + i00*nb00 + i01*nb01 + i02*nb02 + i03*nb03);
-                              float * y = (float *)((char *)  dst->data +  i0*nb0  +  i1*nb1  +  i2*nb2  +  i3*nb3);
-
-                        *y = *x;
+                                *y = *x;
+                            }
+                        }
                     }
                 }
+                return;
             }
-        }
-    } else if (mode == GGML_SCALE_MODE_BILINEAR) {
-        // setting a pixel offset of 0 would replicate the behavior of pytorch interpolate with align_corners=True
-        const float pixel_offset = 0.5f;
+        case GGML_SCALE_MODE_BILINEAR:
+            {
+                // setting a pixel offset of 0 would replicate the behavior of pytorch interpolate with align_corners=True
+                const float pixel_offset = 0.5f;
 
-        for (int64_t i3 = 0; i3 < ne3; i3++) {
-            const int64_t i03 = i3 / sf3;
-            for (int64_t i2 = ith; i2 < ne2; i2 += nth) {
-                const int64_t i02 = i2 / sf2;
-                for (int64_t i1 = 0; i1 < ne1; i1++) {
-                    const float y = ((float)i1 + pixel_offset) / sf1 - pixel_offset;
-                    int64_t y0 = (int64_t)floorf(y);
-                    int64_t y1 = y0 + 1;
+                for (int64_t i3 = 0; i3 < ne3; i3++) {
+                    const int64_t i03 = i3 / sf3;
+                    for (int64_t i2 = ith; i2 < ne2; i2 += nth) {
+                        const int64_t i02 = i2 / sf2;
+                        for (int64_t i1 = 0; i1 < ne1; i1++) {
+                            const float y = ((float)i1 + pixel_offset) / sf1 - pixel_offset;
+                            int64_t y0 = (int64_t)floorf(y);
+                            int64_t y1 = y0 + 1;
 
-                    y0 = std::max(int64_t(0), std::min(y0, ne01 - 1));
-                    y1 = std::max(int64_t(0), std::min(y1, ne01 - 1));
+                            y0 = std::max(int64_t(0), std::min(y0, ne01 - 1));
+                            y1 = std::max(int64_t(0), std::min(y1, ne01 - 1));
 
-                    float dy = y - (float)y0;
-                    dy = std::max(0.0f, std::min(dy, 1.0f));
+                            float dy = y - (float)y0;
+                            dy = std::max(0.0f, std::min(dy, 1.0f));
 
-                    for (int64_t i0 = 0; i0 < ne0; i0++) {
-                        const float x = ((float)i0 + pixel_offset) / sf0 - pixel_offset;
-                        int64_t x0 = (int64_t)floorf(x);
-                        int64_t x1 = x0 + 1;
+                            for (int64_t i0 = 0; i0 < ne0; i0++) {
+                                const float x = ((float)i0 + pixel_offset) / sf0 - pixel_offset;
+                                int64_t x0 = (int64_t)floorf(x);
+                                int64_t x1 = x0 + 1;
 
-                        x0 = std::max(int64_t(0), std::min(x0, ne00 - 1));
-                        x1 = std::max(int64_t(0), std::min(x1, ne00 - 1));
+                                x0 = std::max(int64_t(0), std::min(x0, ne00 - 1));
+                                x1 = std::max(int64_t(0), std::min(x1, ne00 - 1));
 
-                        float dx = x - (float)x0;
-                        dx = std::max(0.0f, std::min(dx, 1.0f));
+                                float dx = x - (float)x0;
+                                dx = std::max(0.0f, std::min(dx, 1.0f));
 
-                        // fetch the four surrounding pixel values and interpolate
-                        const float a = *(const float *)((const char *)src0->data + x0*nb00 + y0*nb01 + i02*nb02 + i03*nb03);
-                        const float b = *(const float *)((const char *)src0->data + x1*nb00 + y0*nb01 + i02*nb02 + i03*nb03);
-                        const float c = *(const float *)((const char *)src0->data + x0*nb00 + y1*nb01 + i02*nb02 + i03*nb03);
-                        const float d = *(const float *)((const char *)src0->data + x1*nb00 + y1*nb01 + i02*nb02 + i03*nb03);
+                                // fetch the four surrounding pixel values and interpolate
+                                const float a = *(const float *)((const char *)src0->data + x0*nb00 + y0*nb01 + i02*nb02 + i03*nb03);
+                                const float b = *(const float *)((const char *)src0->data + x1*nb00 + y0*nb01 + i02*nb02 + i03*nb03);
+                                const float c = *(const float *)((const char *)src0->data + x0*nb00 + y1*nb01 + i02*nb02 + i03*nb03);
+                                const float d = *(const float *)((const char *)src0->data + x1*nb00 + y1*nb01 + i02*nb02 + i03*nb03);
 
-                        const float val = a*(1 - dx)*(1 - dy) + b*dx*(1 - dy) + c*(1 - dx)*dy + d*dx*dy;
+                                const float val = a*(1 - dx)*(1 - dy) + b*dx*(1 - dy) + c*(1 - dx)*dy + d*dx*dy;
 
-                        float * y_dst = (float *)((char *)dst->data + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3);
-                        *y_dst = val;
+                                float * y_dst = (float *)((char *)dst->data + i0*nb0 + i1*nb1 + i2*nb2 + i3*nb3);
+                                *y_dst = val;
+                            }
+                        }
                     }
                 }
+                return;
             }
-        }
-    } else {
-        GGML_ABORT("unsupported upscale mode");
+        case GGML_SCALE_MODE_LINEAR:
+            {
+                // pytorch pads essentially pads each end of the series being interpolated with half the scale number of values.
+                const float hsf0 = sf0 / 2.0f;
+                for (int64_t i3 = 0; i3 < ne3; i3++) {
+                    for (int64_t i2 = 0; i2 < ne2; i2++) {
+                        for (int64_t i1 = 0; i1 < ne1; i1++) {
+                            float * y = (float *)((char *)dst->data + i1*nb1 + i2*nb2 + i3*nb3);
+                            for (int64_t i0 = ith; i0 < ne0; i0 += nth) {
+                                if (i0 < hsf0) {
+                                    y[i0] = ((float *)((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03))[0];
+                                    continue;
+                                } else if (i0 >= ne0 - hsf0) {
+                                    y[i0] = ((float *)((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03))[ne00 - 1];
+                                    continue;
+                                }
+                                const int64_t i00 = (int64_t)((i0 - hsf0) / sf0);
+                                const float * x = (float *)((char *) src0->data + i00*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
+                                float diff_adj = (x[1] - x[0]) / sf0;
+                                float adj = ((int64_t)(i0 - hsf0) % (int64_t)sf0) * diff_adj + (diff_adj / 2.0f);
+                                y[i0] = x[0] + adj;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+        default:
+            GGML_ABORT("unsupported upscale mode");
     }
 }
 
