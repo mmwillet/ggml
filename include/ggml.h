@@ -1821,6 +1821,7 @@ extern "C" {
     enum ggml_scale_mode {
         GGML_SCALE_MODE_NEAREST  = 0,
         GGML_SCALE_MODE_BILINEAR = 1,
+        GGML_SCALE_MODE_LINEAR   = 2,
     };
 
     // interpolate
